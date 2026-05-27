@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check HACS-relevant repository structure and metadata for ETM."""
+"""Check HACS-relevant repository structure and metadata for Title Classifier."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from pathlib import Path
 
 ROOT = Path(".")
 INTEGRATIONS_DIR = ROOT / "custom_components"
-INTEGRATION = INTEGRATIONS_DIR / "etm"
+INTEGRATION = INTEGRATIONS_DIR / "title_classifier"
 MANIFEST = INTEGRATION / "manifest.json"
 HACS_JSON = ROOT / "hacs.json"
 REQUIRED_MANIFEST_KEYS = {
@@ -27,7 +27,7 @@ def main() -> None:
         raise SystemExit(f"Missing HACS integration directory: {INTEGRATION}")
 
     integrations = sorted(path.name for path in INTEGRATIONS_DIR.iterdir() if path.is_dir())
-    if integrations != ["etm"]:
+    if integrations != ["title_classifier"]:
         raise SystemExit(
             "HACS requires exactly one integration below custom_components/; "
             f"found: {', '.join(integrations) or 'none'}"

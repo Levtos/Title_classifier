@@ -5,7 +5,7 @@ Short answer: **yes, this repository uses the standard HACS integration layout a
 The repository exposes the integration at:
 
 ```text
-custom_components/etm/
+custom_components/title_classifier/
 ```
 
 from the repository root, with all runtime files inside that directory. The integration manifest includes the required `domain`, `documentation`, `issue_tracker`, `codeowners`, `name`, and `version` fields.
@@ -14,7 +14,7 @@ The repository also ships root-level HACS metadata:
 
 ```json
 {
-  "name": "Entity Title Mapper",
+  "name": "Title Classifier",
   "render_readme": true
 }
 ```

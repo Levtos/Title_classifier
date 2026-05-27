@@ -1,0 +1,53 @@
+set_enum:
+  fields:
+    entry_id:
+      required: true
+      selector:
+        text:
+    key:
+      required: true
+      selector:
+        text:
+    enum:
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 9
+          mode: box
+
+delete_entry:
+  fields:
+    entry_id:
+      required: true
+      selector:
+        text:
+    key:
+      required: true
+      selector:
+        text:
+
+clear_old:
+  fields:
+    entry_id:
+      required: false
+      selector:
+        text:
+    days:
+      required: false
+      default: 30
+      selector:
+        number:
+          min: 1
+          mode: box
+
+import_entries:
+  fields:
+    entry_id:
+      required: true
+      selector:
+        text:
+    entries:
+      required: true
+      selector:
+        object:

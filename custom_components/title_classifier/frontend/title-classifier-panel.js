@@ -1,13 +1,13 @@
 // Title Classifier panel
-// Uses Home Assistant WebSocket commands for authenticated ETM access.
+// Uses Home Assistant WebSocket commands for authenticated Title Classifier access.
 // Number inputs are always visible; Save/Enter persists changes explicitly.
 
 (() => {
-if (customElements.get("etm-panel")) return;
+if (customElements.get("title-classifier-panel")) return;
 
-const STORAGE_KEY = "etm-panel-state-v1";
+const STORAGE_KEY = "title-classifier-panel-state-v1";
 
-class EtmPanel extends HTMLElement {
+class TitleClassifierPanel extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
@@ -106,7 +106,7 @@ class EtmPanel extends HTMLElement {
 
   async _loadSources() {
     try {
-      this._sources = await this._ws({ type: "etm/get_sources" });
+      this._sources = await this._ws({ type: "title_classifier/get_sources" });
       if (this._filterSource && !this._sources.some(s => s.entry_id === this._filterSource)) {
         // saved source filter no longer exists — drop it silently
         this._filterSource = "";
@@ -123,7 +123,7 @@ class EtmPanel extends HTMLElement {
     this._loading = showLoading;
     this._setTableLoading(showLoading);
     try {
-      const message = { type: "etm/list_entries" };
+      const message = { type: "title_classifier/list_entries" };
       if (this._filterSource) message.source = this._filterSource;
       if (this._filterUnclassified) message.unclassified = true;
       if (this._filterSearch.trim()) message.search = this._filterSearch.trim();
@@ -148,7 +148,7 @@ class EtmPanel extends HTMLElement {
   async _save(entryId, key, value, inputEl, buttonEl = null) {
     try {
       this._setSaving(inputEl, buttonEl, true);
-      await this._ws({ type: "etm/update_entry", entry_id: entryId, key, enum_value: value });
+      await this._ws({ type: "title_classifier/update_entry", entry_id: entryId, key, enum_value: value });
       const e = this._entries.find(e => e.entry_id === entryId && e.key === key);
       if (e) {
         const wasUnmapped = e.enum === 0;
@@ -294,7 +294,7 @@ class EtmPanel extends HTMLElement {
   async _acSearch(query) {
     try {
       const msg = {
-        type: "etm/list_entries",
+        type: "title_classifier/list_entries",
         search: query,
         include_hidden: true,
         limit: 25,
@@ -380,7 +380,7 @@ class EtmPanel extends HTMLElement {
       return;
     }
     try {
-      const res = await this._ws({ type: "etm/hide_unmapped", entry_id: this._filterSource });
+      const res = await this._ws({ type: "title_classifier/hide_unmapped", entry_id: this._filterSource });
       this._toast(`${res?.hidden ?? 0} Einträge ausgeblendet`, "success");
       await Promise.all([this._loadSources(), this._loadEntries({ showLoading: true })]);
     } catch (err) {
@@ -460,21 +460,21 @@ class EtmPanel extends HTMLElement {
   font-family: var(--paper-font-body1_-_font-family, Roboto, sans-serif);
 
   /* Dracula-inspired enum palette in rainbow order (0 = neutral) */
-  --etm-enum-0: #6272a4; /* comment grey-blue */
-  --etm-enum-1: #ff5555; /* red */
-  --etm-enum-2: #ffb86c; /* orange */
-  --etm-enum-3: #f1fa8c; /* yellow */
-  --etm-enum-4: #50fa7b; /* green */
-  --etm-enum-5: #8be9fd; /* cyan */
-  --etm-enum-6: #bd93f9; /* purple */
-  --etm-enum-7: #ff79c6; /* pink */
-  --etm-enum-8: #f8f8f2; /* foreground / white */
-  --etm-enum-9: #44475a; /* dark selection */
+  --tc-enum-0: #6272a4; /* comment grey-blue */
+  --tc-enum-1: #ff5555; /* red */
+  --tc-enum-2: #ffb86c; /* orange */
+  --tc-enum-3: #f1fa8c; /* yellow */
+  --tc-enum-4: #50fa7b; /* green */
+  --tc-enum-5: #8be9fd; /* cyan */
+  --tc-enum-6: #bd93f9; /* purple */
+  --tc-enum-7: #ff79c6; /* pink */
+  --tc-enum-8: #f8f8f2; /* foreground / white */
+  --tc-enum-9: #44475a; /* dark selection */
 
   /* Watcher categories — left rail colour per source kind */
-  --etm-cat-media:    #bd93f9;
-  --etm-cat-game:     #50fa7b;
-  --etm-cat-activity: #ffb86c;
+  --tc-cat-media:    #bd93f9;
+  --tc-cat-game:     #50fa7b;
+  --tc-cat-activity: #ffb86c;
 }
 h1 { margin: 0 0 20px; font-size: 1.5rem; font-weight: 400; }
 
@@ -584,28 +584,28 @@ tr.artist-hdr .ct {
 }
 
 /* row accents — left rail by watcher category */
-tr[data-watcher="media"]    td:first-child { border-left: 3px solid var(--etm-cat-media);    }
-tr[data-watcher="game"]     td:first-child { border-left: 3px solid var(--etm-cat-game);     }
-tr[data-watcher="activity"] td:first-child { border-left: 3px solid var(--etm-cat-activity); }
+tr[data-watcher="media"]    td:first-child { border-left: 3px solid var(--tc-cat-media);    }
+tr[data-watcher="game"]     td:first-child { border-left: 3px solid var(--tc-cat-game);     }
+tr[data-watcher="activity"] td:first-child { border-left: 3px solid var(--tc-cat-activity); }
 tr.current { background: color-mix(in srgb, var(--primary-color) 7%, transparent); }
 
 /* enum-value colour dot next to the number input */
 .enum-dot {
   width: 12px; height: 12px; border-radius: 50%;
-  background: var(--etm-enum-0);
+  background: var(--tc-enum-0);
   border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
   flex-shrink: 0;
 }
-.enum-dot[data-enum="0"] { background: var(--etm-enum-0); }
-.enum-dot[data-enum="1"] { background: var(--etm-enum-1); }
-.enum-dot[data-enum="2"] { background: var(--etm-enum-2); }
-.enum-dot[data-enum="3"] { background: var(--etm-enum-3); }
-.enum-dot[data-enum="4"] { background: var(--etm-enum-4); }
-.enum-dot[data-enum="5"] { background: var(--etm-enum-5); }
-.enum-dot[data-enum="6"] { background: var(--etm-enum-6); }
-.enum-dot[data-enum="7"] { background: var(--etm-enum-7); }
-.enum-dot[data-enum="8"] { background: var(--etm-enum-8); }
-.enum-dot[data-enum="9"] { background: var(--etm-enum-9); }
+.enum-dot[data-enum="0"] { background: var(--tc-enum-0); }
+.enum-dot[data-enum="1"] { background: var(--tc-enum-1); }
+.enum-dot[data-enum="2"] { background: var(--tc-enum-2); }
+.enum-dot[data-enum="3"] { background: var(--tc-enum-3); }
+.enum-dot[data-enum="4"] { background: var(--tc-enum-4); }
+.enum-dot[data-enum="5"] { background: var(--tc-enum-5); }
+.enum-dot[data-enum="6"] { background: var(--tc-enum-6); }
+.enum-dot[data-enum="7"] { background: var(--tc-enum-7); }
+.enum-dot[data-enum="8"] { background: var(--tc-enum-8); }
+.enum-dot[data-enum="9"] { background: var(--tc-enum-9); }
 
 /* unclassified marker now lives on the input, not the row rail */
 tr.zero .ei { border-color: var(--warning-color, #ffa600); }
@@ -688,9 +688,9 @@ tr.is-hidden td .key { font-style: italic; }
   border-left: 3px solid transparent;
   display: flex; flex-direction: column; gap: 2px;
 }
-.ac-item[data-watcher="media"]    { border-left-color: var(--etm-cat-media); }
-.ac-item[data-watcher="game"]     { border-left-color: var(--etm-cat-game); }
-.ac-item[data-watcher="activity"] { border-left-color: var(--etm-cat-activity); }
+.ac-item[data-watcher="media"]    { border-left-color: var(--tc-cat-media); }
+.ac-item[data-watcher="game"]     { border-left-color: var(--tc-cat-game); }
+.ac-item[data-watcher="activity"] { border-left-color: var(--tc-cat-activity); }
 .ac-item:last-child  { border-bottom: none; }
 .ac-item:hover       { background: var(--secondary-background-color); }
 .ac-row { display: flex; align-items: center; gap: 8px; }
@@ -941,7 +941,7 @@ ${view.totalPages > 1 ? this._pagHtml(view.page, view.totalPages) : ""}
     const catLabels = { media: "Media", game: "Game / Gaming", activity: "Activity" };
     const catRows = [...types]
       .filter(t => catLabels[t])
-      .map(t => `<div class="leg-cat-row"><span class="leg-cat-swatch" style="background: var(--etm-cat-${t})"></span>${catLabels[t]}</div>`)
+      .map(t => `<div class="leg-cat-row"><span class="leg-cat-swatch" style="background: var(--tc-cat-${t})"></span>${catLabels[t]}</div>`)
       .join("");
     const catSection = catRows
       ? `<div class="leg-section"><div class="leg-title">Kategorie-Streifen</div>${catRows}</div>`
@@ -1142,5 +1142,5 @@ ${view.totalPages > 1 ? this._pagHtml(view.page, view.totalPages) : ""}
   }
 }
 
-customElements.define("etm-panel", EtmPanel);
+customElements.define("title-classifier-panel", TitleClassifierPanel);
 })();

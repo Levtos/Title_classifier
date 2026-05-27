@@ -2,7 +2,7 @@
   "config": {
     "step": {
       "user": {
-        "title": "ETM-Watcher erstellen",
+        "title": "Title-Classifier-Watcher erstellen",
         "description": "Wähle die Entität, deren Titel-/Statuswerte auf einen Enum gemappt werden sollen.",
         "data": {
           "name": "Name",
@@ -23,7 +23,7 @@
   "options": {
     "step": {
       "init": {
-        "title": "ETM-Watcher-Optionen",
+        "title": "Title-Classifier-Watcher-Optionen",
         "data": {
           "retention_days": "Retention-Tage",
           "auto_hide_hours": "Auto-Hide nach N Stunden (0 = aus)"
