@@ -3,19 +3,19 @@
     "step": {
       "user": {
         "title": "Create Title Classifier watcher",
-        "description": "Choose the entity whose title/state values should be mapped to an enum.",
+        "description": "Choose which Home Assistant entity should be watched and what kind of value should be classified.",
         "data": {
-          "name": "Name",
-          "source_entity": "Source entity",
-          "watcher_type": "Watcher type",
-          "retention_days": "Retention days"
+          "name": "Watcher name",
+          "source_entity": "Which entity should be watched?",
+          "watcher_type": "What should be detected?",
+          "retention_days": "How long should old entries be kept?"
         }
       },
       "artist": {
         "title": "Select artist attribute",
-        "description": "Choose the attribute that contains the artist/author for this media watcher.",
+        "description": "Optional: choose the attribute that provides artist, author, or station name. If it does not fit, the integration falls back to known media attributes.",
         "data": {
-          "artist_attribute": "Artist attribute"
+          "artist_attribute": "Artist / station attribute"
         }
       }
     }
@@ -23,10 +23,10 @@
   "options": {
     "step": {
       "init": {
-        "title": "Title Classifier watcher options",
+        "title": "Watcher options",
         "data": {
-          "retention_days": "Retention days",
-          "auto_hide_hours": "Auto-hide after N hours (0 = off)"
+          "retention_days": "Keep old entries for days",
+          "auto_hide_hours": "Automatically hide unclassified entries after hours (0 = off)"
         }
       }
     }

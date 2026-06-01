@@ -1,1144 +1,858 @@
-// Title Classifier panel
-// Uses Home Assistant WebSocket commands for authenticated Title Classifier access.
-// Number inputs are always visible; Save/Enter persists changes explicitly.
+// Title Classifier Workbench
+// Standalone Home Assistant panel using the existing title_classifier WebSocket API.
 
 (() => {
 if (customElements.get("title-classifier-panel")) return;
 
-const STORAGE_KEY = "title-classifier-panel-state-v1";
+const STORAGE_KEY = "title-classifier-workbench-state-v2";
+const ENUMS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+const VIEWS = [
+  ["overview", "Uebersicht"],
+  ["inbox", "Inbox"],
+  ["catalog", "Katalog"],
+  ["watchers", "Watcher"],
+  ["import", "Import / Export"],
+  ["settings", "Einstellungen"],
+];
 
 class TitleClassifierPanel extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
-    this._hass    = null;
+    this._hass = null;
     this._sources = [];
+    this._allEntries = [];
     this._entries = [];
     this._loading = false;
-    this._timer   = null;
+    this._timer = null;
+    this._selected = null;
 
-    this._filterSource       = "";
-    this._filterUnclassified = false;
-    this._filterSearch       = "";
-
-    this._sortBy  = "last_seen";
-    this._sortAsc = false;   // newest first by default
-
-    this._page          = 1;
-    this._pageSize      = 100;   // flat rows per page
-    this._pageSizeGroup = 25;    // artist groups per page when grouped
-
-    this._groupByArtist    = false;
-    this._showLegend       = false;
-    this._collapsedArtists = new Set();
-
+    this._view = "overview";
+    this._filterSource = "";
+    this._filterClass = "all";
+    this._filterType = "all";
+    this._filterSearch = "";
     this._includeHidden = false;
-    this._acQuery       = "";
-    this._acResults     = [];
-    this._acOpen        = false;
-    this._acTimer       = null;
+    this._groupByArtist = false;
+    this._sortBy = "last_seen";
+    this._sortAsc = false;
+    this._exportText = "";
+    this._importText = "";
 
     this._loadState();
-    this._lastRenderSignature = null;
   }
 
-  // ── persistence ───────────────────────────────────────────────────────────
-
-  _loadState() {
-    try {
-      const raw = window.localStorage?.getItem(STORAGE_KEY);
-      if (!raw) return;
-      const s = JSON.parse(raw);
-      if (typeof s.filterSource       === "string")  this._filterSource       = s.filterSource;
-      if (typeof s.filterUnclassified === "boolean") this._filterUnclassified = s.filterUnclassified;
-      if (typeof s.filterSearch       === "string")  this._filterSearch       = s.filterSearch;
-      if (typeof s.sortBy             === "string")  this._sortBy             = s.sortBy;
-      if (typeof s.sortAsc            === "boolean") this._sortAsc            = s.sortAsc;
-      if (typeof s.groupByArtist      === "boolean") this._groupByArtist      = s.groupByArtist;
-      if (typeof s.showLegend         === "boolean") this._showLegend         = s.showLegend;
-      if (typeof s.includeHidden      === "boolean") this._includeHidden      = s.includeHidden;
-      if (Array.isArray(s.collapsedArtists))         this._collapsedArtists   = new Set(s.collapsedArtists);
-    } catch { /* ignore corrupt state */ }
-  }
-
-  _saveState() {
-    try {
-      window.localStorage?.setItem(STORAGE_KEY, JSON.stringify({
-        filterSource:       this._filterSource,
-        filterUnclassified: this._filterUnclassified,
-        filterSearch:       this._filterSearch,
-        sortBy:             this._sortBy,
-        sortAsc:            this._sortAsc,
-        groupByArtist:      this._groupByArtist,
-        showLegend:         this._showLegend,
-        includeHidden:      this._includeHidden,
-        collapsedArtists:   [...this._collapsedArtists],
-      }));
-    } catch { /* localStorage unavailable */ }
-  }
-
-  set hass(h) {
-    this._hass = h;
-    if (!this._loading && this._entries.length === 0) this._load();
+  set hass(hass) {
+    this._hass = hass;
+    if (!this._loading && this._sources.length === 0) this._load();
   }
 
   connectedCallback() {
     this._render();
-    this._timer = setInterval(() => this._loadEntries(), 30_000);
+    this._timer = setInterval(() => this._load({ quiet: true }), 30_000);
   }
 
   disconnectedCallback() {
     clearInterval(this._timer);
   }
 
-  // ── WebSocket helper ──────────────────────────────────────────────────────
+  _loadState() {
+    try {
+      const raw = window.localStorage?.getItem(STORAGE_KEY);
+      if (!raw) return;
+      const state = JSON.parse(raw);
+      for (const key of [
+        "view", "filterSource", "filterClass", "filterType", "filterSearch",
+        "sortBy",
+      ]) {
+        const prop = `_${key}`;
+        if (typeof state[key] === "string") this[prop] = state[key];
+      }
+      if (typeof state.includeHidden === "boolean") this._includeHidden = state.includeHidden;
+      if (typeof state.groupByArtist === "boolean") this._groupByArtist = state.groupByArtist;
+      if (typeof state.sortAsc === "boolean") this._sortAsc = state.sortAsc;
+    } catch { /* ignore local state */ }
+  }
+
+  _saveState() {
+    try {
+      window.localStorage?.setItem(STORAGE_KEY, JSON.stringify({
+        view: this._view,
+        filterSource: this._filterSource,
+        filterClass: this._filterClass,
+        filterType: this._filterType,
+        filterSearch: this._filterSearch,
+        includeHidden: this._includeHidden,
+        groupByArtist: this._groupByArtist,
+        sortBy: this._sortBy,
+        sortAsc: this._sortAsc,
+      }));
+    } catch { /* localStorage unavailable */ }
+  }
 
   async _ws(message) {
-    if (!this._hass?.connection) throw new Error("Home Assistant connection unavailable");
+    if (!this._hass?.connection) throw new Error("Home Assistant Verbindung nicht verfuegbar");
     return this._hass.connection.sendMessagePromise(message);
   }
 
-  // ── data loading ──────────────────────────────────────────────────────────
-
-  async _load() {
-    await Promise.all([this._loadSources(), this._loadEntries()]);
-  }
-
-  async _loadSources() {
-    try {
-      this._sources = await this._ws({ type: "title_classifier/get_sources" });
-      if (this._filterSource && !this._sources.some(s => s.entry_id === this._filterSource)) {
-        // saved source filter no longer exists — drop it silently
-        this._filterSource = "";
-        this._saveState();
-      }
-    } catch (err) {
-      this._toast(`Quellen konnten nicht geladen werden: ${err.message}`, "error");
-    }
-    this._render();
-  }
-
-  async _loadEntries({ showLoading = false, resetPage = false } = {}) {
+  async _load({ quiet = false } = {}) {
     if (!this._hass) return;
-    this._loading = showLoading;
-    this._setTableLoading(showLoading);
+    this._loading = !quiet;
+    this._render();
     try {
-      const message = { type: "title_classifier/list_entries" };
-      if (this._filterSource) message.source = this._filterSource;
-      if (this._filterUnclassified) message.unclassified = true;
-      if (this._filterSearch.trim()) message.search = this._filterSearch.trim();
-      if (this._includeHidden) message.include_hidden = true;
-      this._entries = await this._ws(message);
-      if (resetPage) this._page = 1;
+      const [sources, entries] = await Promise.all([
+        this._ws({ type: "title_classifier/get_sources" }),
+        this._ws({ type: "title_classifier/list_entries", include_hidden: true, limit: 1000 }),
+      ]);
+      this._sources = Array.isArray(sources) ? sources : [];
+      this._allEntries = Array.isArray(entries) ? entries : [];
+      if (this._filterSource && !this._sources.some(s => s.entry_id === this._filterSource)) {
+        this._filterSource = "";
+      }
+      if (this._selected && !this._allEntries.some(e => this._sameEntry(e, this._selected))) {
+        this._selected = null;
+      }
+      this._applyFilters();
+      this._saveState();
     } catch (err) {
       this._toast(`Laden fehlgeschlagen: ${err.message}`, "error");
     } finally {
       this._loading = false;
-      this._setTableLoading(false);
       this._render();
     }
   }
 
-  _setTableLoading(isLoading) {
-    this.shadowRoot?.querySelector(".tw")?.classList.toggle("loading", isLoading);
-  }
-
-  // ── save — no full re-render, just update the input's baseline ────────────
-
-  async _save(entryId, key, value, inputEl, buttonEl = null) {
-    try {
-      this._setSaving(inputEl, buttonEl, true);
-      await this._ws({ type: "title_classifier/update_entry", entry_id: entryId, key, enum_value: value });
-      const e = this._entries.find(e => e.entry_id === entryId && e.key === key);
-      if (e) {
-        const wasUnmapped = e.enum === 0;
-        const wasHidden   = !!e.hidden;
-        const nowUnmapped = value === 0;
-        e.enum = value;
-        if (value !== 0 && wasHidden) {
-          // backend clears hidden_at on classify — reflect that locally
-          e.hidden    = false;
-          e.hidden_at = null;
-        }
-        const src = this._sources.find(s => s.entry_id === entryId);
-        if (src) {
-          if (wasUnmapped !== nowUnmapped) {
-            src.unmapped_count = Math.max(0, (src.unmapped_count ?? 0) + (nowUnmapped ? 1 : -1));
-          }
-          if (value !== 0 && wasHidden) {
-            src.hidden_count = Math.max(0, (src.hidden_count ?? 0) - 1);
-          }
-        }
-      }
-      inputEl.dataset.original = String(value);
-      inputEl.value = String(value);
-      this._setInputDirty(inputEl, buttonEl, false);
-      this._flash(inputEl, "saved");
-      this._toast("Wert gespeichert", "success");
-    } catch (err) {
-      this._toast(`Speichern fehlgeschlagen: ${err.message}`, "error");
-      inputEl.value = inputEl.dataset.original;
-      this._setInputDirty(inputEl, buttonEl, false);
-      this._flash(inputEl, "err");
-    } finally {
-      this._setSaving(inputEl, buttonEl, false);
-    }
-  }
-
-  _saveInput(inputEl) {
-    const orig = parseInt(inputEl.dataset.original, 10);
-    const val  = parseInt(inputEl.value, 10);
-    const buttonEl = this.shadowRoot?.querySelector(
-      `.save-row[data-eid="${CSS.escape(inputEl.dataset.eid)}"][data-key="${CSS.escape(inputEl.dataset.key)}"]`
+  _applyFilters() {
+    const query = this._filterSearch.trim().toLowerCase();
+    let rows = [...this._allEntries];
+    if (this._view === "inbox") rows = rows.filter(e => e.enum === 0);
+    if (this._filterSource) rows = rows.filter(e => e.entry_id === this._filterSource);
+    if (this._filterType !== "all") rows = rows.filter(e => e.watcher_type === this._filterType);
+    if (this._filterClass === "unclassified") rows = rows.filter(e => e.enum === 0);
+    if (this._filterClass === "classified") rows = rows.filter(e => e.enum !== 0);
+    if (!this._includeHidden) rows = rows.filter(e => !e.hidden);
+    if (query) rows = rows.filter(e =>
+      e.key.toLowerCase().includes(query)
+      || (e.source_name || "").toLowerCase().includes(query)
     );
-    if (isNaN(val)) { inputEl.value = orig; return; }
-    if (val === orig) { this._setInputDirty(inputEl, buttonEl, false); return; }
-    if (val < 0 || val > 9) {
-      this._toast("Wert muss 0–9 sein", "error");
-      inputEl.value = orig;
-      this._setInputDirty(inputEl, buttonEl, false);
-      return;
+    rows.sort((a, b) => this._compareEntries(a, b));
+    this._entries = rows;
+  }
+
+  _compareEntries(a, b) {
+    let cmp = 0;
+    switch (this._sortBy) {
+      case "key":
+        cmp = a.key.localeCompare(b.key);
+        break;
+      case "source":
+        cmp = (a.source_name || "").localeCompare(b.source_name || "");
+        break;
+      case "enum":
+        cmp = a.enum - b.enum;
+        break;
+      case "seen_count":
+        cmp = (a.seen_count || 0) - (b.seen_count || 0);
+        break;
+      default:
+        cmp = new Date(a.last_seen || 0) - new Date(b.last_seen || 0);
     }
-    this._save(inputEl.dataset.eid, inputEl.dataset.key, val, inputEl, buttonEl);
+    return this._sortAsc ? cmp : -cmp;
   }
 
-  _setInputDirty(inputEl, buttonEl, dirty) {
-    inputEl.classList.toggle("dirty", dirty);
-    if (buttonEl) buttonEl.disabled = !dirty;
+  _stats() {
+    const total = this._sources.reduce((sum, s) => sum + (s.entry_count || 0), 0);
+    const unclassified = this._sources.reduce((sum, s) => sum + (s.unmapped_count || 0), 0);
+    const hidden = this._sources.reduce((sum, s) => sum + (s.hidden_count || 0), 0);
+    const activeWatchers = this._sources.length;
+    const current = this._currentEntry();
+    const last = [...this._allEntries].sort((a, b) =>
+      new Date(b.last_seen || 0) - new Date(a.last_seen || 0)
+    )[0];
+    return { total, unclassified, hidden, activeWatchers, current, last };
   }
 
-  _setSaving(inputEl, buttonEl, saving) {
-    inputEl.disabled = saving;
-    if (buttonEl) {
-      buttonEl.disabled = saving || inputEl.value === inputEl.dataset.original;
-      buttonEl.textContent = saving ? "…" : "Speichern";
-    }
+  _currentEntry() {
+    return this._allEntries.find(e => e.is_current)
+      || [...this._allEntries].sort((a, b) =>
+        new Date(b.last_seen || 0) - new Date(a.last_seen || 0)
+      )[0]
+      || null;
   }
 
-  _flash(el, cls) {
-    el.classList.add(cls);
-    setTimeout(() => el.classList.remove(cls), 900);
+  _source(entryId) {
+    return this._sources.find(s => s.entry_id === entryId);
   }
 
-  // ── sorting ───────────────────────────────────────────────────────────────
-
-  _sortedEntries() {
-    const grouping = this._groupByArtist && this._isMediaSource();
-    return [...this._entries].sort((a, b) => {
-      if (grouping) {
-        const ac = (this._artistFrom(a.key) ?? "").localeCompare(this._artistFrom(b.key) ?? "");
-        if (ac !== 0) return ac;
-      }
-      let cmp;
-      switch (this._sortBy) {
-        case "key":  cmp = a.key.localeCompare(b.key); break;
-        case "enum": cmp = a.enum - b.enum; break;
-        default:     cmp = new Date(a.last_seen) - new Date(b.last_seen);
-      }
-      return this._sortAsc ? cmp : -cmp;
-    });
+  _sameEntry(a, b) {
+    return a?.entry_id === b?.entry_id && a?.key === b?.key;
   }
 
-  _toggleSort(col) {
-    if (this._sortBy === col) {
-      this._sortAsc = !this._sortAsc;
-    } else {
-      this._sortBy  = col;
-      this._sortAsc = col !== "last_seen";
-    }
-    this._saveState();
+  async _setEnum(entry, value) {
+    const previous = entry.enum;
+    entry.enum = value;
+    this._syncEntry(entry);
+    this._applyFilters();
     this._render();
-  }
-
-  // ── artist helpers ────────────────────────────────────────────────────────
-
-  _artistFrom(key) {
-    const i = key.indexOf(" - ");
-    return i >= 0 ? key.slice(0, i) : null;
-  }
-
-  _titleFrom(key) {
-    const i = key.indexOf(" - ");
-    return i >= 0 ? key.slice(i + 3) : key;
-  }
-
-  _isMediaSource() {
-    if (this._filterSource) {
-      const src = this._sources.find(s => s.entry_id === this._filterSource);
-      return src?.watcher_type === "media";
-    }
-    return this._sources.some(s => s.watcher_type === "media");
-  }
-
-  _toggleArtist(artist) {
-    if (this._collapsedArtists.has(artist)) this._collapsedArtists.delete(artist);
-    else this._collapsedArtists.add(artist);
-    this._saveState();
-    this._render();
-  }
-
-  // ── autocomplete (find hidden entries) ────────────────────────────────────
-
-  _acScheduleSearch(query) {
-    clearTimeout(this._acTimer);
-    this._acQuery = query;
-    if (query.trim().length < 2) {
-      this._acResults = [];
-      this._acOpen    = false;
-      this._renderAcDropdown();
-      return;
-    }
-    this._acTimer = setTimeout(() => this._acSearch(query.trim()), 220);
-  }
-
-  async _acSearch(query) {
     try {
-      const msg = {
-        type: "title_classifier/list_entries",
-        search: query,
-        include_hidden: true,
-        limit: 25,
-      };
-      if (this._filterSource) msg.source = this._filterSource;
-      this._acResults = await this._ws(msg);
-      this._acOpen    = true;
-    } catch (err) {
-      this._toast(`Suche fehlgeschlagen: ${err.message}`, "error");
-      this._acResults = [];
-      this._acOpen    = false;
-    }
-    this._renderAcDropdown();
-  }
-
-  _acClose() {
-    this._acOpen    = false;
-    this._acQuery   = "";
-    this._acResults = [];
-    this._renderAcDropdown();
-    const inp = this.shadowRoot?.querySelector("#ac-input");
-    if (inp) inp.value = "";
-  }
-
-  _acPick(entryId, key) {
-    // Bring the picked entry into the main view by jumping to that source +
-    // exact-match search and turning on hidden inclusion. The user can then
-    // assign an enum like with any other row.
-    this._filterSource       = entryId;
-    this._filterSearch       = key;
-    this._filterUnclassified = false;
-    this._includeHidden      = true;
-    this._page               = 1;
-    this._saveState();
-    this._acClose();
-    this._loadEntries({ resetPage: true, showLoading: true });
-    this._toast("Eintrag in die Liste geholt", "success");
-  }
-
-  _renderAcDropdown() {
-    const dd = this.shadowRoot?.querySelector(".ac-dd");
-    if (!dd) return;
-    if (!this._acOpen || this._acResults.length === 0) {
-      dd.hidden = true;
-      dd.innerHTML = "";
-      return;
-    }
-    dd.hidden = false;
-    dd.innerHTML = this._acResults.map(r => `
-      <div class="ac-item" data-watcher="${this._esc(r.watcher_type || "")}"
-           data-eid="${this._esc(r.entry_id)}" data-key="${this._esc(r.key)}">
-        <span class="ac-row">
-          <span class="enum-dot" data-enum="${r.enum}"></span>
-          <span class="ac-key">${this._esc(r.key)}</span>
-        </span>
-        <span class="ac-meta">
-          ${this._esc(r.source_name)} · Wert ${r.enum}${r.hidden ? " · versteckt" : ""}
-          · zuletzt ${this._rel(r.last_seen)}
-        </span>
-      </div>`).join("");
-    dd.querySelectorAll(".ac-item").forEach(el => {
-      el.addEventListener("mousedown", ev => {
-        ev.preventDefault();
-        this._acPick(el.dataset.eid, el.dataset.key);
+      await this._ws({
+        type: "title_classifier/update_entry",
+        entry_id: entry.entry_id,
+        key: entry.key,
+        enum_value: value,
       });
-    });
+      await this._load({ quiet: true });
+      this._toast(`Kategorie ${value} gespeichert`, "success");
+    } catch (err) {
+      entry.enum = previous;
+      this._syncEntry(entry);
+      this._applyFilters();
+      this._render();
+      this._toast(`Speichern fehlgeschlagen: ${err.message}`, "error");
+    }
   }
 
-  // ── bulk hide unmapped ────────────────────────────────────────────────────
+  _syncEntry(entry) {
+    const idx = this._allEntries.findIndex(e => this._sameEntry(e, entry));
+    if (idx >= 0) this._allEntries[idx] = { ...this._allEntries[idx], ...entry };
+    if (this._selected && this._sameEntry(this._selected, entry)) {
+      this._selected = { ...this._selected, ...entry };
+    }
+  }
 
-  async _hideUnmapped() {
-    if (!this._filterSource) {
-      this._toast("Bitte zuerst eine Source wählen", "error");
+  async _deleteEntry(entry) {
+    if (!window.confirm(`Eintrag "${entry.key}" wirklich loeschen?`)) return;
+    try {
+      await this._ws({ type: "title_classifier/delete_entry", entry_id: entry.entry_id, key: entry.key });
+      this._selected = null;
+      await this._load({ quiet: true });
+      this._toast("Eintrag geloescht", "success");
+    } catch (err) {
+      this._toast(`Loeschen fehlgeschlagen: ${err.message}`, "error");
+    }
+  }
+
+  async _hideUnmapped(sourceId) {
+    if (!sourceId) {
+      this._toast("Bitte zuerst eine Source waehlen", "error");
       return;
     }
-    const src = this._sources.find(s => s.entry_id === this._filterSource);
-    const n = src?.unmapped_count ?? 0;
-    if (n === 0) {
-      this._toast("Keine unklassifizierten Einträge zum Ausblenden", "info");
-      return;
-    }
-    if (!window.confirm(`${n} unklassifizierte Einträge in „${src?.name ?? "?"}\" ausblenden?\n\nDie Einträge bleiben in der Datenbank — werden sie wieder gespielt, tauchen sie automatisch wieder auf.`)) {
+    const src = this._source(sourceId);
+    if (!src?.unmapped_count) {
+      this._toast("Keine unklassifizierten Eintraege", "info");
       return;
     }
     try {
-      const res = await this._ws({ type: "title_classifier/hide_unmapped", entry_id: this._filterSource });
-      this._toast(`${res?.hidden ?? 0} Einträge ausgeblendet`, "success");
-      await Promise.all([this._loadSources(), this._loadEntries({ showLoading: true })]);
+      await this._ws({ type: "title_classifier/hide_unmapped", entry_id: sourceId });
+      await this._load({ quiet: true });
+      this._toast("Unklassifizierte Eintraege ausgeblendet", "success");
     } catch (err) {
       this._toast(`Ausblenden fehlgeschlagen: ${err.message}`, "error");
     }
   }
 
-  _setAllCollapsed(collapse) {
-    if (!collapse) {
-      this._collapsedArtists.clear();
-    } else {
-      this._collapsedArtists = new Set(
-        this._entries.map(e => this._artistFrom(e.key) ?? "— Kein Künstler —")
-      );
+  _exportJson() {
+    const payload = {
+      version: 1,
+      exported_at: new Date().toISOString(),
+      domain: "title_classifier",
+      sources: this._sources.map(s => ({
+        entry_id: s.entry_id,
+        name: s.name,
+        watcher_type: s.watcher_type,
+        source_entity: s.source_entity,
+      })),
+      entries: this._allEntries.map(e => ({
+        entry_id: e.entry_id,
+        source_name: e.source_name,
+        watcher_type: e.watcher_type,
+        key: e.key,
+        enum: e.enum,
+        first_seen: e.first_seen,
+        last_seen: e.last_seen,
+        seen_count: e.seen_count,
+        hidden_at: e.hidden_at || null,
+      })),
+    };
+    this._exportText = JSON.stringify(payload, null, 2);
+    this._render();
+  }
+
+  async _importJson() {
+    try {
+      const payload = JSON.parse(this._importText || "{}");
+      const rows = Array.isArray(payload) ? payload : payload.entries;
+      if (!Array.isArray(rows)) throw new Error("JSON muss ein entries-Array enthalten");
+      const grouped = new Map();
+      for (const row of rows) {
+        if (!row.key || row.enum === undefined) continue;
+        const entryId = row.entry_id || this._filterSource;
+        if (!entryId) throw new Error("entry_id fehlt; bitte Source waehlen oder exportiertes Format nutzen");
+        if (!grouped.has(entryId)) grouped.set(entryId, []);
+        grouped.get(entryId).push({ key: String(row.key), enum: Number(row.enum) });
+      }
+      for (const [entryId, entries] of grouped) {
+        await this._ws({ type: "title_classifier/import_entries", entry_id: entryId, entries });
+      }
+      await this._load({ quiet: true });
+      this._toast("Import abgeschlossen", "success");
+    } catch (err) {
+      this._toast(`Import fehlgeschlagen: ${err.message}`, "error");
     }
+  }
+
+  _setView(view) {
+    this._view = view;
+    if (view === "inbox") this._filterClass = "unclassified";
+    if (view === "catalog" && this._filterClass === "unclassified") this._filterClass = "all";
+    this._applyFilters();
     this._saveState();
     this._render();
   }
 
-  // ── paginated view model ──────────────────────────────────────────────────
-
-  _viewModel() {
-    const sorted = this._sortedEntries();
-    if (this._groupByArtist && this._isMediaSource()) {
-      const seen  = new Map();
-      const order = [];
-      for (const e of sorted) {
-        const artist = this._artistFrom(e.key) ?? "— Kein Künstler —";
-        if (!seen.has(artist)) { seen.set(artist, []); order.push(artist); }
-        seen.get(artist).push(e);
-      }
-      const groups = order.map(artist => ({
-        artist,
-        entries:   seen.get(artist),
-        collapsed: this._collapsedArtists.has(artist),
-      }));
-      const totalPages = Math.max(1, Math.ceil(groups.length / this._pageSizeGroup));
-      const page       = Math.min(this._page, totalPages);
-      const pageGroups = groups.slice((page - 1) * this._pageSizeGroup, page * this._pageSizeGroup);
-      return {
-        mode: "grouped", groups: pageGroups,
-        totalRows: sorted.length, totalGroups: groups.length,
-        page, totalPages,
-      };
-    }
-    const totalPages = Math.max(1, Math.ceil(sorted.length / this._pageSize));
-    const page       = Math.min(this._page, totalPages);
-    const rows       = sorted.slice((page - 1) * this._pageSize, page * this._pageSize);
-    return { mode: "flat", rows, totalRows: sorted.length, page, totalPages };
+  _setFilter(name, value) {
+    this[name] = value;
+    this._applyFilters();
+    this._saveState();
+    this._render();
   }
 
-  // ── render ────────────────────────────────────────────────────────────────
+  _toggleSort(sortBy) {
+    if (this._sortBy === sortBy) this._sortAsc = !this._sortAsc;
+    else {
+      this._sortBy = sortBy;
+      this._sortAsc = sortBy !== "last_seen" && sortBy !== "seen_count";
+    }
+    this._applyFilters();
+    this._saveState();
+    this._render();
+  }
 
-  _render(force = false) {
+  _render() {
     if (!this.shadowRoot) return;
-
-    const view = this._viewModel();
-    if (this._page !== view.page) this._page = view.page;
-    const signature = this._renderSignature(view);
-    if (!force && signature === this._lastRenderSignature) return;
-    this._lastRenderSignature = signature;
-
-    const arr = col =>
-      this._sortBy !== col
-        ? `<span class="sh">↕</span>`
-        : `<span class="sa">${this._sortAsc ? "↑" : "↓"}</span>`;
-
-    const showGroupBy = this._isMediaSource();
-
     this.shadowRoot.innerHTML = `
 <style>
 :host {
-  display: block; padding: 24px;
-  color: var(--primary-text-color);
-  background: var(--primary-background-color);
-  min-height: 100%; box-sizing: border-box;
-  font-family: var(--paper-font-body1_-_font-family, Roboto, sans-serif);
-
-  /* Dracula-inspired enum palette in rainbow order (0 = neutral) */
-  --tc-enum-0: #6272a4; /* comment grey-blue */
-  --tc-enum-1: #ff5555; /* red */
-  --tc-enum-2: #ffb86c; /* orange */
-  --tc-enum-3: #f1fa8c; /* yellow */
-  --tc-enum-4: #50fa7b; /* green */
-  --tc-enum-5: #8be9fd; /* cyan */
-  --tc-enum-6: #bd93f9; /* purple */
-  --tc-enum-7: #ff79c6; /* pink */
-  --tc-enum-8: #f8f8f2; /* foreground / white */
-  --tc-enum-9: #44475a; /* dark selection */
-
-  /* Watcher categories — left rail colour per source kind */
-  --tc-cat-media:    #bd93f9;
-  --tc-cat-game:     #50fa7b;
-  --tc-cat-activity: #ffb86c;
+  --tc-bg: #0b1020;
+  --tc-panel: #11172a;
+  --tc-card: #161d33;
+  --tc-card-2: #1a2240;
+  --tc-border: rgba(148, 163, 184, .18);
+  --tc-text: #f8f8f2;
+  --tc-muted: #a6adc8;
+  --tc-soft: #69708e;
+  --tc-cyan: #8be9fd;
+  --tc-purple: #bd93f9;
+  --tc-green: #50fa7b;
+  --tc-orange: #ffb86c;
+  --tc-red: #ff5555;
+  --tc-pink: #ff79c6;
+  --tc-yellow: #f1fa8c;
+  --tc-radius: 8px;
+  --tc-shadow: 0 18px 50px rgba(0, 0, 0, .28);
+  --enum-0: #6272a4;
+  --enum-1: #50fa7b;
+  --enum-2: #8be9fd;
+  --enum-3: #bd93f9;
+  --enum-4: #ff79c6;
+  --enum-5: #ff5555;
+  --enum-6: #ffb86c;
+  --enum-7: #f1fa8c;
+  --enum-8: #00c7d4;
+  --enum-9: #94a3b8;
+  display: block;
+  min-height: 100%;
+  color: var(--tc-text);
+  background:
+    radial-gradient(circle at 12% 0%, rgba(189, 147, 249, .14), transparent 28rem),
+    linear-gradient(180deg, #0c1224 0%, var(--tc-bg) 60%);
+  font-family: Inter, Roboto, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
-h1 { margin: 0 0 20px; font-size: 1.5rem; font-weight: 400; }
-
-/* toolbar */
-.bar {
-  display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
-  margin-bottom: 14px; padding: 12px 16px;
-  background: var(--card-background-color); border-radius: 8px;
-  box-shadow: var(--ha-card-box-shadow, 0 2px 4px rgba(0,0,0,.12));
+* { box-sizing: border-box; }
+button, input, select, textarea { font: inherit; }
+.shell { display: grid; grid-template-columns: 236px minmax(0, 1fr); min-height: 100vh; }
+.side {
+  border-right: 1px solid var(--tc-border);
+  background: rgba(10, 14, 28, .76);
+  padding: 18px 12px;
+  position: sticky;
+  top: 0;
+  height: 100vh;
 }
-.fg { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
-select, input[type="text"] {
-  background: var(--input-fill-color, var(--secondary-background-color));
-  border: 1px solid var(--input-ink-color, var(--secondary-text-color));
-  border-radius: 4px; color: var(--primary-text-color);
-  font: inherit; height: 34px; padding: 0 10px;
+.brand { display: flex; align-items: center; gap: 12px; font-weight: 800; font-size: 1.05rem; margin: 0 10px 26px; }
+.brand-mark {
+  width: 34px; height: 34px; border-radius: 8px; display: grid; place-items: center;
+  background: linear-gradient(135deg, rgba(139, 233, 253, .16), rgba(189, 147, 249, .28));
+  border: 1px solid rgba(189, 147, 249, .42); color: var(--tc-purple);
 }
-select             { min-width: 160px; }
-input[type="text"] { min-width: 180px; }
-input[type="checkbox"] { cursor: pointer; }
+.nav { display: grid; gap: 8px; }
+.nav-btn {
+  width: 100%; height: 44px; border: 1px solid transparent; border-radius: var(--tc-radius);
+  background: transparent; color: var(--tc-muted); cursor: pointer;
+  display: flex; align-items: center; justify-content: space-between; padding: 0 12px;
+}
+.nav-btn span:first-child { display: flex; align-items: center; gap: 10px; }
+.nav-btn.active {
+  color: var(--tc-text); border-color: rgba(189, 147, 249, .5);
+  background: linear-gradient(90deg, rgba(189, 147, 249, .26), rgba(139, 233, 253, .05));
+}
+.badge-count {
+  min-width: 24px; height: 24px; padding: 0 7px; display: inline-grid; place-items: center;
+  background: rgba(189, 147, 249, .32); color: var(--tc-text); border-radius: 999px; font-size: .8rem;
+}
+.side-foot { position: absolute; left: 18px; right: 18px; bottom: 18px; color: var(--tc-muted); font-size: .82rem; display: grid; gap: 10px; }
+.main { padding: 22px 28px 32px; min-width: 0; }
+.top { display: flex; gap: 18px; align-items: start; justify-content: space-between; margin-bottom: 18px; }
+h1 { margin: 0; font-size: 1.55rem; line-height: 1.1; }
+.sub { color: var(--tc-muted); margin-top: 6px; font-size: .88rem; }
+.actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: end; }
+.search {
+  width: min(360px, 42vw); height: 40px; border: 1px solid var(--tc-border); border-radius: var(--tc-radius);
+  background: rgba(10, 14, 28, .72); color: var(--tc-text); padding: 0 13px;
+}
 .btn {
-  border: none; border-radius: 4px; cursor: pointer;
-  font: inherit; height: 34px; padding: 0 14px; transition: opacity .15s;
+  min-height: 38px; border-radius: var(--tc-radius); border: 1px solid var(--tc-border);
+  background: rgba(255,255,255,.04); color: var(--tc-text); cursor: pointer; padding: 0 14px;
 }
-.btn-p { background: var(--primary-color); color: var(--text-primary-color, #fff); }
-.btn-g {
-  background: transparent;
-  border: 1px solid var(--divider-color);
-  color: var(--primary-text-color);
+.btn.primary { border: 0; background: linear-gradient(135deg, #7c3aed, #6d28d9); box-shadow: 0 10px 24px rgba(124, 58, 237, .28); font-weight: 700; }
+.btn.danger { color: var(--tc-red); border-color: rgba(255, 85, 85, .35); }
+.grid { display: grid; gap: 14px; }
+.summary { grid-template-columns: repeat(5, minmax(130px, 1fr)); margin-bottom: 16px; }
+.card {
+  background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.025));
+  border: 1px solid var(--tc-border); border-radius: var(--tc-radius); box-shadow: var(--tc-shadow);
 }
-.btn:hover { opacity: .85; }
-
-/* legend */
-.legend {
-  display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 14px;
+.metric { padding: 18px; min-height: 106px; display: flex; gap: 14px; align-items: center; }
+.metric .ico, .watch-ico {
+  width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center;
+  background: rgba(139, 233, 253, .12); color: var(--tc-cyan); font-size: 1.35rem;
 }
-.leg-section {
-  background: var(--card-background-color); border-radius: 8px;
-  box-shadow: var(--ha-card-box-shadow, 0 2px 4px rgba(0,0,0,.12));
-  flex: 1; min-width: 260px; padding: 14px 16px;
+.metric strong { display: block; font-size: 1.5rem; }
+.metric span { color: var(--tc-muted); font-size: .82rem; }
+.watchers { grid-template-columns: repeat(3, minmax(180px, 1fr)); margin-bottom: 16px; }
+.watch-card { padding: 16px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; }
+.watch-card h3 { margin: 0 0 4px; font-size: .92rem; color: var(--tc-muted); }
+.watch-card strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status { color: var(--tc-green); font-size: .75rem; font-weight: 800; text-transform: uppercase; }
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; }
+.panel { overflow: hidden; }
+.toolbar {
+  display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+  padding: 14px; border-bottom: 1px solid var(--tc-border); background: rgba(255,255,255,.025);
 }
-.leg-title {
-  font-size: .85rem; font-weight: 600; letter-spacing: .04em;
-  margin-bottom: 10px; text-transform: uppercase;
-  color: var(--secondary-text-color);
+.tabs { display: flex; gap: 8px; padding: 14px 14px 0; border-bottom: 1px solid var(--tc-border); }
+.tab { background: transparent; border: 0; color: var(--tc-muted); padding: 0 12px 12px; cursor: pointer; border-bottom: 2px solid transparent; }
+.tab.active { color: var(--tc-text); border-color: var(--tc-purple); }
+select, .filter-input, textarea {
+  min-height: 36px; border: 1px solid var(--tc-border); border-radius: var(--tc-radius);
+  background: rgba(10, 14, 28, .65); color: var(--tc-text); padding: 0 10px;
 }
-.leg-table { border-collapse: collapse; font-size: .88rem; width: 100%; }
-.leg-table th {
-  border-bottom: 1px solid var(--divider-color);
-  font-weight: 600; padding: 4px 10px 6px; text-align: left;
+textarea { width: 100%; min-height: 220px; padding: 12px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.table { width: 100%; border-collapse: collapse; }
+.table th { text-align: left; color: var(--tc-muted); font-size: .8rem; padding: 12px 14px; border-bottom: 1px solid var(--tc-border); cursor: pointer; }
+.table td { padding: 9px 14px; border-bottom: 1px solid rgba(148, 163, 184, .10); vertical-align: middle; }
+.row { cursor: pointer; }
+.row:hover { background: rgba(139, 233, 253, .05); }
+.row.selected { background: rgba(189, 147, 249, .13); }
+.title-cell strong { display: block; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.meta { color: var(--tc-muted); font-size: .8rem; margin-top: 3px; }
+.source-pill, .kind-pill {
+  display: inline-flex; align-items: center; min-height: 22px; padding: 0 8px; border-radius: 999px;
+  background: rgba(98, 114, 164, .22); color: var(--tc-text); font-size: .78rem;
 }
-.leg-table td { padding: 5px 10px; border-bottom: 1px solid var(--divider-color); }
-.leg-table tr:last-child td { border-bottom: none; }
-.leg-enum {
-  font-family: var(--code-font-family, monospace); font-weight: 700; width: 64px;
-  display: flex; align-items: center; gap: 8px;
+.kind-pill { color: var(--tc-cyan); }
+.enum-pills { display: flex; gap: 6px; flex-wrap: wrap; }
+.enum-pill {
+  width: 32px; height: 32px; border-radius: 7px; border: 1px solid var(--tc-border);
+  background: rgba(255,255,255,.035); color: var(--tc-muted); cursor: pointer; padding: 0;
 }
-.leg-enum .enum-dot { width: 10px; height: 10px; }
-.leg-cat-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
-.leg-cat-swatch { width: 14px; height: 14px; border-radius: 3px; }
-.leg-mode { color: var(--secondary-text-color); font-family: var(--code-font-family, monospace); font-size: .82rem; }
-.leg-reserviert td { color: var(--secondary-text-color); font-style: italic; }
-
-/* info line */
-.inf { margin-bottom: 8px; font-size: .85rem; color: var(--secondary-text-color); }
-.inf b { color: var(--primary-text-color); font-weight: 600; }
-
-/* table card */
-.tw {
-  background: var(--card-background-color); border-radius: 8px;
-  box-shadow: var(--ha-card-box-shadow, 0 2px 4px rgba(0,0,0,.12));
-  overflow-x: auto; transition: opacity .2s;
+.enum-pill.active { color: #fff; border-color: var(--pill); background: color-mix(in srgb, var(--pill) 45%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--pill) 35%, transparent); }
+.drawer { padding: 16px; position: sticky; top: 22px; align-self: start; }
+.drawer-head { display: flex; justify-content: space-between; gap: 12px; align-items: start; margin-bottom: 16px; }
+.drawer h2 { margin: 0; font-size: 1.05rem; }
+.cover {
+  width: 96px; height: 96px; border-radius: var(--tc-radius); background:
+    linear-gradient(135deg, rgba(139, 233, 253, .18), rgba(189, 147, 249, .24));
+  border: 1px solid var(--tc-border); display: grid; place-items: center; color: var(--tc-purple); font-size: 2rem;
 }
-.tw.loading { opacity: .5; pointer-events: none; }
-table { border-collapse: collapse; width: 100%; font-size: .94rem; }
-thead th {
-  background: var(--table-header-background-color, var(--secondary-background-color));
-  border-bottom: 2px solid var(--divider-color);
-  cursor: pointer; font-weight: 600; padding: 11px 16px;
-  text-align: left; user-select: none; white-space: nowrap;
-}
-thead th:hover { filter: brightness(.95); }
-.sh { opacity: .3; }
-.sa { color: var(--primary-color); }
-td  { border-bottom: 1px solid var(--divider-color); padding: 8px 16px; vertical-align: middle; }
-tr:last-child td { border-bottom: none; }
-
-/* artist group header — clickable for collapse/expand */
-tr.artist-hdr td {
-  background: var(--secondary-background-color);
-  border-bottom: 1px solid var(--divider-color);
-  border-left: 3px solid var(--primary-color);
-  color: var(--primary-text-color);
-  cursor: pointer;
-  font-size: .85rem; font-weight: 600; padding: 6px 16px;
-  user-select: none;
-}
-tr.artist-hdr td:hover { filter: brightness(1.05); }
-tr.artist-hdr .caret {
-  display: inline-block; width: 14px; text-align: center;
-  margin-right: 6px; color: var(--secondary-text-color);
-}
-tr.artist-hdr.collapsed .caret { color: var(--primary-color); }
-tr.artist-hdr .ct {
-  margin-left: 8px; color: var(--secondary-text-color);
-  font-weight: 400; font-size: .8rem;
-}
-
-/* row accents — left rail by watcher category */
-tr[data-watcher="media"]    td:first-child { border-left: 3px solid var(--tc-cat-media);    }
-tr[data-watcher="game"]     td:first-child { border-left: 3px solid var(--tc-cat-game);     }
-tr[data-watcher="activity"] td:first-child { border-left: 3px solid var(--tc-cat-activity); }
-tr.current { background: color-mix(in srgb, var(--primary-color) 7%, transparent); }
-
-/* enum-value colour dot next to the number input */
-.enum-dot {
-  width: 12px; height: 12px; border-radius: 50%;
-  background: var(--tc-enum-0);
-  border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
-  flex-shrink: 0;
-}
-.enum-dot[data-enum="0"] { background: var(--tc-enum-0); }
-.enum-dot[data-enum="1"] { background: var(--tc-enum-1); }
-.enum-dot[data-enum="2"] { background: var(--tc-enum-2); }
-.enum-dot[data-enum="3"] { background: var(--tc-enum-3); }
-.enum-dot[data-enum="4"] { background: var(--tc-enum-4); }
-.enum-dot[data-enum="5"] { background: var(--tc-enum-5); }
-.enum-dot[data-enum="6"] { background: var(--tc-enum-6); }
-.enum-dot[data-enum="7"] { background: var(--tc-enum-7); }
-.enum-dot[data-enum="8"] { background: var(--tc-enum-8); }
-.enum-dot[data-enum="9"] { background: var(--tc-enum-9); }
-
-/* unclassified marker now lives on the input, not the row rail */
-tr.zero .ei { border-color: var(--warning-color, #ffa600); }
-
-/* cells */
-.key {
-  font-family: var(--code-font-family, monospace); font-size: .88rem;
-  max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.badge {
-  background: var(--primary-color); border-radius: 999px; color: #fff;
-  font-size: .7rem; margin-left: 6px; padding: 1px 7px; vertical-align: middle;
-}
-.src {
-  background: var(--secondary-background-color);
-  border-radius: 4px; font-size: .8rem; padding: 2px 8px; white-space: nowrap;
-}
-
-/* always-visible number input for enum */
-.ei {
-  background: var(--input-fill-color, var(--secondary-background-color));
-  border: 1px solid var(--divider-color);
-  border-radius: 4px; color: var(--primary-text-color);
-  font: 600 1rem/1 inherit; text-align: center;
-  width: 62px; height: 30px; padding: 0;
-  transition: border-color .18s, background .18s;
-}
-.enum-cell { display: flex; align-items: center; gap: 8px; }
-.ei:focus { outline: none; border-color: var(--primary-color); }
-.ei.dirty { border-color: var(--warning-color, #ffa600); }
-.ei.saved {
-  border-color: var(--success-color, #4caf50);
-  background: color-mix(in srgb, var(--success-color, #4caf50) 14%, transparent);
-}
-.ei.err {
-  border-color: var(--error-color, #f44336);
-  background: color-mix(in srgb, var(--error-color, #f44336) 14%, transparent);
-}
-.save-row { height: 30px; padding: 0 10px; }
-.save-row:disabled { cursor: default; opacity: .45; }
-
-/* pagination */
-.pag {
-  display: flex; align-items: center; justify-content: center;
-  flex-wrap: wrap; gap: 6px; margin-top: 14px;
-}
-.pag .btn { min-width: 36px; padding: 0 8px; }
-.pag .act { background: var(--primary-color); color: var(--text-primary-color, #fff); border-color: var(--primary-color); }
-
-/* hidden-row dimming when "Versteckte zeigen" is on */
-tr.is-hidden td { opacity: .55; }
-tr.is-hidden td .src,
-tr.is-hidden td .key { font-style: italic; }
-
-/* autocomplete row */
-.ac-bar {
-  display: flex; align-items: center; gap: 10px;
-  margin-bottom: 14px;
-}
-.ac-wrap { position: relative; flex: 1; min-width: 240px; max-width: 520px; }
-.ac-wrap input {
-  background: var(--input-fill-color, var(--secondary-background-color));
-  border: 1px solid var(--input-ink-color, var(--secondary-text-color));
-  border-radius: 4px; color: var(--primary-text-color);
-  font: inherit; height: 34px; padding: 0 10px; width: 100%; box-sizing: border-box;
-}
-.ac-hint {
-  color: var(--secondary-text-color); font-size: .8rem;
-}
-.ac-dd {
-  position: absolute; top: 100%; left: 0; right: 0; z-index: 50;
-  background: var(--card-background-color);
-  border: 1px solid var(--divider-color); border-radius: 4px;
-  margin-top: 2px; max-height: 320px; overflow-y: auto;
-  box-shadow: 0 4px 14px rgba(0,0,0,.25);
-}
-.ac-item {
-  cursor: pointer; padding: 8px 12px 8px 9px;
-  border-bottom: 1px solid var(--divider-color);
-  border-left: 3px solid transparent;
-  display: flex; flex-direction: column; gap: 2px;
-}
-.ac-item[data-watcher="media"]    { border-left-color: var(--tc-cat-media); }
-.ac-item[data-watcher="game"]     { border-left-color: var(--tc-cat-game); }
-.ac-item[data-watcher="activity"] { border-left-color: var(--tc-cat-activity); }
-.ac-item:last-child  { border-bottom: none; }
-.ac-item:hover       { background: var(--secondary-background-color); }
-.ac-row { display: flex; align-items: center; gap: 8px; }
-.ac-key  { font-family: var(--code-font-family, monospace); font-size: .88rem; }
-.ac-meta { color: var(--secondary-text-color); font-size: .75rem; }
-
-/* empty state */
-.empty { color: var(--secondary-text-color); padding: 40px; text-align: center; }
-
-/* toast */
+.details { display: grid; gap: 10px; margin: 14px 0; }
+.detail-row { display: flex; justify-content: space-between; gap: 12px; border-bottom: 1px solid rgba(148, 163, 184, .10); padding-bottom: 8px; }
+.detail-row span:first-child { color: var(--tc-muted); }
+.empty { color: var(--tc-muted); text-align: center; padding: 44px 20px; }
+.import-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 16px; }
+.settings { padding: 16px; color: var(--tc-muted); line-height: 1.6; }
 .toast {
-  animation: tin .2s ease; border-radius: 8px;
-  bottom: 28px; box-shadow: 0 4px 14px rgba(0,0,0,.25);
-  color: #fff; font-size: .9rem; max-width: 320px;
-  padding: 12px 20px; position: fixed; right: 28px; z-index: 9999;
-  background: var(--primary-color);
+  position: fixed; right: 26px; bottom: 26px; z-index: 10; border-radius: var(--tc-radius);
+  background: #2563eb; color: #fff; padding: 12px 16px; box-shadow: var(--tc-shadow);
 }
-.toast.error   { background: var(--error-color,   #f44336); }
-.toast.success { background: var(--success-color, #4caf50); }
-@keyframes tin { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
+.toast.error { background: #dc2626; }
+.toast.success { background: #16a34a; }
+@media (max-width: 1180px) {
+  .shell { grid-template-columns: 1fr; }
+  .side { position: relative; height: auto; display: block; }
+  .side-foot { position: static; margin: 22px 10px 0; }
+  .nav { grid-template-columns: repeat(3, 1fr); }
+  .summary { grid-template-columns: repeat(2, 1fr); }
+  .watchers { grid-template-columns: 1fr; }
+  .layout { grid-template-columns: 1fr; }
+  .drawer { position: static; }
+}
+@media (max-width: 720px) {
+  .main { padding: 18px 14px; }
+  .top { display: grid; }
+  .actions { justify-content: stretch; }
+  .search { width: 100%; }
+  .summary, .import-grid { grid-template-columns: 1fr; }
+  .nav { grid-template-columns: 1fr; }
+  .table th:nth-child(2), .table td:nth-child(2), .table th:nth-child(4), .table td:nth-child(4) { display: none; }
+}
 </style>
-
-<h1>Title Classifier</h1>
-
-<div class="bar">
-  <div class="fg">
-    Source
-    <select id="f-src">
-      <option value="">${this._esc(this._allSourcesLabel())}</option>
-      ${this._sources.map(s => {
-        const label = `${s.name} (${s.entry_count ?? 0})`;
-        return `<option value="${this._esc(s.entry_id)}"${this._filterSource === s.entry_id ? " selected" : ""}>${this._esc(label)}</option>`;
-      }).join("")}
-    </select>
-  </div>
-  <div class="fg">
-    <input type="checkbox" id="f-unc"${this._filterUnclassified ? " checked" : ""} />
-    <label for="f-unc">Nur unklassifiziert</label>
-  </div>
-  <div class="fg">
-    <input type="text" id="f-s" placeholder="Titel suchen …" value="${this._esc(this._filterSearch)}" />
-  </div>
-  <button class="btn btn-p" id="btn-apply">Filter anwenden</button>
-  <button class="btn btn-g" id="btn-ref" title="Jetzt aktualisieren">↻</button>
-  ${showGroupBy ? `
-  <div class="fg">
-    <input type="checkbox" id="f-grp"${this._groupByArtist ? " checked" : ""} />
-    <label for="f-grp">Nach Künstler</label>
-  </div>` : ""}
-  ${showGroupBy && this._groupByArtist ? `
-  <button class="btn btn-g" id="btn-coll-all" title="Alle Künstler einklappen">Alle ▸</button>
-  <button class="btn btn-g" id="btn-exp-all"  title="Alle Künstler ausklappen">Alle ▾</button>` : ""}
-  ${this._anyAutoHide() ? `
-  <div class="fg">
-    <input type="checkbox" id="f-hid"${this._includeHidden ? " checked" : ""} />
-    <label for="f-hid">Versteckte zeigen</label>
-  </div>` : ""}
-  ${this._hideButtonHtml()}
-  <button class="btn btn-g" id="btn-leg">${this._showLegend ? "Legende ▴" : "Legende ▾"}</button>
-</div>
-
-${this._acBarHtml()}
-
-${this._showLegend ? this._legendHtml() : ""}
-
-<div class="inf">${this._totalsLine(view)}</div>
-
-<div class="tw${this._loading ? " loading" : ""}">
-  <table>
-    <thead>
-      <tr>
-        <th id="th-k">Titel ${arr("key")}</th>
-        <th>Source</th>
-        <th id="th-e" style="width:180px">Wert ${arr("enum")}</th>
-        <th id="th-l">Zuletzt ${arr("last_seen")}</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${this._bodyHtml(view)}
-    </tbody>
-  </table>
-</div>
-
-${view.totalPages > 1 ? this._pagHtml(view.page, view.totalPages) : ""}
-`;
-
-    this._wire(view.page, view.totalPages);
-  }
-
-  _allSourcesLabel() {
-    const total = this._sources.reduce((sum, s) => sum + (s.entry_count ?? 0), 0);
-    return total ? `Alle (${total})` : "Alle";
-  }
-
-  _anyAutoHide() {
-    return this._sources.some(s => (s.auto_hide_hours ?? 0) > 0 || (s.hidden_count ?? 0) > 0);
-  }
-
-  _hiddenCount() {
-    const src = this._sources.find(s => s.entry_id === this._filterSource);
-    return this._filterSource
-      ? src?.hidden_count ?? 0
-      : this._sources.reduce((sum, s) => sum + (s.hidden_count ?? 0), 0);
-  }
-
-  _hideButtonHtml() {
-    if (!this._filterSource) return "";
-    const src = this._sources.find(s => s.entry_id === this._filterSource);
-    const n = src?.unmapped_count ?? 0;
-    if (n === 0) return "";
-    return `<button class="btn btn-g" id="btn-hide" title="Unklassifizierte Einträge dieser Source ausblenden">Ausblenden (${n})</button>`;
-  }
-
-  _acBarHtml() {
-    if (!this._anyAutoHide()) return "";
-    const hidden = this._hiddenCount();
-    return `
-<div class="ac-bar">
-  <div class="ac-wrap">
-    <input type="text" id="ac-input" placeholder="Eintrag vervollständigen — versteckte Titel suchen …"
-           value="${this._esc(this._acQuery)}" autocomplete="off" />
-    <div class="ac-dd" hidden></div>
-  </div>
-  <span class="ac-hint">${hidden} ausgeblendet · tippen zum Suchen, Klick holt zurück</span>
-</div>`;
-  }
-
-  _totalsLine(view) {
-    if (this._loading) return "Lädt …";
-    const src = this._sources.find(s => s.entry_id === this._filterSource);
-    const totalEntries = this._filterSource
-      ? src?.entry_count ?? 0
-      : this._sources.reduce((sum, s) => sum + (s.entry_count ?? 0), 0);
-    const totalUnmapped = this._filterSource
-      ? src?.unmapped_count ?? 0
-      : this._sources.reduce((sum, s) => sum + (s.unmapped_count ?? 0), 0);
-
-    const word         = view.totalRows === 1 ? "Eintrag" : "Einträge";
-    const filteredHint = view.totalRows !== totalEntries
-      ? ` (gefiltert aus <b>${totalEntries}</b>)` : "";
-    const groupHint    = view.mode === "grouped" ? ` · ${view.totalGroups} Künstler` : "";
-    const pageHint     = view.totalPages > 1 ? ` · Seite ${view.page}/${view.totalPages}` : "";
-    const unmappedHint = totalUnmapped ? ` · <b>${totalUnmapped}</b> unklassifiziert` : "";
-    const hiddenCount  = this._hiddenCount();
-    const hiddenHint   = hiddenCount
-      ? ` · <b>${hiddenCount}</b> ${this._includeHidden ? "ausgeblendet (sichtbar)" : "ausgeblendet"}`
-      : "";
-
-    return `<b>${view.totalRows}</b> ${word}${filteredHint}${groupHint}${pageHint}${unmappedHint}${hiddenHint}`;
-  }
-
-  // ── body / row rendering ──────────────────────────────────────────────────
-
-  _bodyHtml(view) {
-    if (view.totalRows === 0) {
-      return `<tr><td class="empty" colspan="4">${this._loading ? "Lädt …" : "Keine Einträge gefunden."}</td></tr>`;
-    }
-    if (view.mode === "flat") {
-      return view.rows.map(e => this._rowHtml(e, e.key)).join("");
-    }
-    let html = "";
-    for (const g of view.groups) {
-      const caret = g.collapsed ? "▸" : "▾";
-      const stats = this._groupStats(g.entries);
-      html += `<tr class="artist-hdr${g.collapsed ? " collapsed" : ""}" data-artist="${this._esc(g.artist)}">`
-            + `<td colspan="4"><span class="caret">${caret}</span>${this._esc(g.artist)}`
-            + `<span class="ct">${g.entries.length} Titel${stats}</span></td></tr>`;
-      if (!g.collapsed) {
-        html += g.entries.map(e => this._rowHtml(e, this._titleFrom(e.key))).join("");
-      }
-    }
-    return html;
-  }
-
-  _groupStats(entries) {
-    const unmapped = entries.filter(e => e.enum === 0).length;
-    if (unmapped === 0)              return " · alle klassifiziert";
-    if (unmapped === entries.length) return " · alle unklassifiziert";
-    return ` · ${unmapped} unklassifiziert`;
-  }
-
-  _rowHtml(e, displayKey) {
-    const cls = [
-      e.enum === 0 ? "zero" : "",
-      e.is_current ? "current" : "",
-      e.hidden ? "is-hidden" : "",
-    ].filter(Boolean).join(" ");
-    const watcher = this._esc(e.watcher_type || "");
-    return `<tr class="${cls}" data-watcher="${watcher}">
-  <td class="key">${this._esc(displayKey)}${e.is_current ? '<span class="badge">aktiv</span>' : ""}</td>
-  <td><span class="src">${this._esc(e.source_name)}</span></td>
-  <td>
-    <div class="enum-cell">
-      <span class="enum-dot" data-enum="${e.enum}"></span>
-      <input class="ei" type="number" min="0" max="9" step="1"
-             value="${e.enum}" data-original="${e.enum}"
-             data-eid="${this._esc(e.entry_id)}" data-key="${this._esc(e.key)}" />
-      <button class="btn btn-g save-row" disabled
-              data-eid="${this._esc(e.entry_id)}" data-key="${this._esc(e.key)}">Speichern</button>
+<div class="shell">
+  <aside class="side">
+    <div class="brand"><div class="brand-mark">${this._icon("cube")}</div><span>Title Classifier</span></div>
+    <nav class="nav">${this._navHtml()}</nav>
+    <div class="side-foot"><span>Dunkles Design: Dracula</span><span>v${this._manifestVersion()}</span></div>
+  </aside>
+  <main class="main">
+    <div class="top">
+      <div><h1>${this._viewTitle()}</h1><div class="sub">${this._viewSubtitle()}</div></div>
+      <div class="actions">
+        <input class="search" id="global-search" placeholder="Titel suchen..." value="${this._esc(this._filterSearch)}">
+        <button class="btn" id="refresh" title="Aktualisieren">${this._icon("refresh")}</button>
+        <button class="btn primary" id="add-watcher">+ Watcher hinzufuegen</button>
+      </div>
     </div>
-  </td>
-  <td>${this._rel(e.last_seen)}</td>
-</tr>`;
+    ${this._loading ? `<div class="empty">Lade Title Classifier...</div>` : this._contentHtml()}
+  </main>
+</div>`;
+    this._wire();
   }
 
-  // ── legend ────────────────────────────────────────────────────────────────
-
-  _legendHtml() {
-    const MEDIA = [
-      [0,     "normal",         "Kein besonderer Eingriff"],
-      [1,     "boost",          "Lieblingstitel → Track Boost +0.15"],
-      [2,     "mute",           "Unerwünschter Titel → Lautstärke 0"],
-      ["3–9", "Reserviert",     "Zukünftige Erweiterungen"],
-    ];
-    const GAME = [
-      [0,     "gaming_default", "Unklassifiziert, Standard-Routing"],
-      [1,     "gaming_grind",   "Grinding-Modus, Musik dominant"],
-      [2,     "gaming_headset", "Headset-Modus, immersives Spiel"],
-      ["3–9", "Reserviert",     "Zukünftige Erweiterungen"],
-    ];
-
-    const selectedSrc = this._sources.find(s => s.entry_id === this._filterSource);
-    const types = new Set(
-      selectedSrc ? [selectedSrc.watcher_type] : this._sources.map(s => s.watcher_type)
-    );
-
-    const enumCell = (e) => {
-      if (typeof e === "string") return `<td class="leg-enum">${e}</td>`;
-      return `<td class="leg-enum"><span class="enum-dot" data-enum="${e}"></span>${e}</td>`;
+  _navHtml() {
+    const counts = {
+      inbox: this._stats().unclassified,
+      catalog: this._stats().total,
+      watchers: this._sources.length,
     };
-
-    const table = (legend, title) => `
-<div class="leg-section">
-  <div class="leg-title">${title}</div>
-  <table class="leg-table">
-    <thead><tr><th>Enum</th><th>Modus</th><th>Bedeutung</th></tr></thead>
-    <tbody>
-      ${legend.map(([e, m, d]) =>
-        `<tr${typeof e === "string" ? ' class="leg-reserviert"' : ""}>`
-        + enumCell(e)
-        + `<td class="leg-mode">${this._esc(m)}</td>`
-        + `<td>${this._esc(d)}</td></tr>`
-      ).join("")}
-    </tbody>
-  </table>
-</div>`;
-
-    const catLabels = { media: "Media", game: "Game / Gaming", activity: "Activity" };
-    const catRows = [...types]
-      .filter(t => catLabels[t])
-      .map(t => `<div class="leg-cat-row"><span class="leg-cat-swatch" style="background: var(--tc-cat-${t})"></span>${catLabels[t]}</div>`)
-      .join("");
-    const catSection = catRows
-      ? `<div class="leg-section"><div class="leg-title">Kategorie-Streifen</div>${catRows}</div>`
-      : "";
-
-    const sections = [];
-    if (catSection)                                   sections.push(catSection);
-    if (types.has("media") || types.has("activity")) sections.push(table(MEDIA, "Media"));
-    if (types.has("game"))                            sections.push(table(GAME,  "Game / Gaming"));
-
-    return sections.length ? `<div class="legend">${sections.join("")}</div>` : "";
+    return VIEWS.map(([id, label]) => `
+      <button class="nav-btn ${this._view === id ? "active" : ""}" data-view="${id}">
+        <span>${this._navIcon(id)} ${label}</span>
+        ${counts[id] ? `<span class="badge-count">${counts[id]}</span>` : ""}
+      </button>
+    `).join("");
   }
 
-  _pagHtml(page, n) {
-    const MAX = 9;
-    let s = Math.max(1, page - Math.floor(MAX / 2));
-    const e = Math.min(n, s + MAX - 1);
-    if (e - s < MAX - 1) s = Math.max(1, e - MAX + 1);
-    const btns = [];
-    if (s > 1) btns.push(`<button class="btn btn-g pb" data-p="1">1</button><span>…</span>`);
-    for (let p = s; p <= e; p++)
-      btns.push(`<button class="btn btn-g${p === page ? " act" : ""} pb" data-p="${p}">${p}</button>`);
-    if (e < n) btns.push(`<span>…</span><button class="btn btn-g pb" data-p="${n}">${n}</button>`);
+  _contentHtml() {
+    if (this._view === "import") return this._importHtml();
+    if (this._view === "settings") return this._settingsHtml();
+    if (this._view === "watchers") return `${this._summaryHtml()}${this._watchersHtml(true)}`;
     return `
-<div class="pag">
-  <button class="btn btn-g" id="pg-p" ${page <= 1 ? "disabled" : ""}>← Zurück</button>
-  ${btns.join("")}
-  <button class="btn btn-g" id="pg-n" ${page >= n ? "disabled" : ""}>Weiter →</button>
-</div>`;
+      ${this._summaryHtml()}
+      ${this._watchersHtml(false)}
+      <div class="layout">
+        <section class="card panel">
+          ${this._tabsHtml()}
+          ${this._toolbarHtml()}
+          ${this._entriesHtml()}
+        </section>
+        ${this._drawerHtml()}
+      </div>
+    `;
   }
 
-  // ── event wiring ──────────────────────────────────────────────────────────
+  _summaryHtml() {
+    const s = this._stats();
+    return `<section class="grid summary">
+      ${this._metric("db", s.total, "Bekannte Titel", `${s.hidden} ausgeblendet`)}
+      ${this._metric("inbox", s.unclassified, "Unklassifiziert", "Enum 0")}
+      ${this._metric("watch", s.activeWatchers, "Watcher aktiv", "Alle online")}
+      ${this._metric("bell", s.current ? 1 : 0, "Aktiv gerade", s.current?.key || "Kein aktueller Titel")}
+      ${this._metric("time", s.last ? this._rel(s.last.last_seen) : "-", "Letzter Wechsel", s.last ? s.last.key : "Noch keine Sichtung")}
+    </section>`;
+  }
 
-  _wire(page, totalPages) {
-    const r = this.shadowRoot;
+  _watchersHtml(full) {
+    const cards = this._sources.map(source => {
+      const current = this._allEntries.find(e => e.entry_id === source.entry_id && e.is_current)
+        || [...this._allEntries].filter(e => e.entry_id === source.entry_id)
+          .sort((a, b) => new Date(b.last_seen || 0) - new Date(a.last_seen || 0))[0];
+      return `<article class="card watch-card">
+        <div class="watch-ico">${this._kindIcon(source.watcher_type)}</div>
+        <div>
+          <h3>${this._esc(source.name)}</h3>
+          <strong>${this._esc(current?.key || source.source_entity || "Kein aktueller Wert")}</strong>
+          <div class="meta">Enum ${current?.enum ?? 0} · ${this._typeLabel(source.watcher_type)}</div>
+        </div>
+        <div><div class="status">${current?.is_current ? "Aktiv" : "Online"}</div><div class="meta">${current ? this._rel(current.last_seen) : "-"}</div></div>
+      </article>`;
+    }).join("");
+    return `<section class="grid watchers${full ? " full" : ""}">${cards || `<div class="card empty">Noch keine Watcher geladen.</div>`}</section>`;
+  }
 
-    // filter bar
-    r.querySelector("#btn-apply")?.addEventListener("click", () => {
-      this._filterSource       = r.querySelector("#f-src")?.value ?? "";
-      this._filterUnclassified = r.querySelector("#f-unc")?.checked ?? false;
-      this._filterSearch       = r.querySelector("#f-s")?.value ?? "";
-      this._saveState();
-      this._loadEntries({ resetPage: true });
-    });
-    r.querySelector("#f-s")?.addEventListener("keydown", ev => {
-      if (ev.key === "Enter") r.querySelector("#btn-apply")?.click();
-    });
-    r.querySelector("#btn-ref")?.addEventListener("click", () => this._loadEntries({ showLoading: true }));
+  _tabsHtml() {
+    const tabs = [["inbox", "Inbox"], ["catalog", "Katalog"], ["overview", "Verlauf"]];
+    return `<div class="tabs">${tabs.map(([id, label]) => `
+      <button class="tab ${this._view === id ? "active" : ""}" data-view="${id}">${label}</button>
+    `).join("")}</div>`;
+  }
 
-    // legend toggle
-    r.querySelector("#btn-leg")?.addEventListener("click", () => {
-      this._showLegend = !this._showLegend;
-      this._saveState();
-      this._render();
-    });
+  _toolbarHtml() {
+    const srcOptions = this._sources.map(s => `<option value="${this._esc(s.entry_id)}"${this._filterSource === s.entry_id ? " selected" : ""}>${this._esc(s.name)}</option>`).join("");
+    return `<div class="toolbar">
+      <select id="filter-source"><option value="">Quelle: Alle</option>${srcOptions}</select>
+      <select id="filter-class">
+        <option value="all"${this._filterClass === "all" ? " selected" : ""}>Kategorie: Alle</option>
+        <option value="unclassified"${this._filterClass === "unclassified" ? " selected" : ""}>Unklassifiziert</option>
+        <option value="classified"${this._filterClass === "classified" ? " selected" : ""}>Klassifiziert</option>
+      </select>
+      <select id="filter-type">
+        <option value="all"${this._filterType === "all" ? " selected" : ""}>Typ: Alle</option>
+        <option value="media"${this._filterType === "media" ? " selected" : ""}>Musik / Medien</option>
+        <option value="game"${this._filterType === "game" ? " selected" : ""}>Spiel / App</option>
+        <option value="activity"${this._filterType === "activity" ? " selected" : ""}>Aktivitaet</option>
+      </select>
+      <label><input type="checkbox" id="include-hidden"${this._includeHidden ? " checked" : ""}> Versteckte zeigen</label>
+      <label><input type="checkbox" id="group-artist"${this._groupByArtist ? " checked" : ""}> Nach Kuenstler</label>
+      ${this._filterSource ? `<button class="btn" id="hide-unmapped">Unklassifizierte ausblenden</button>` : ""}
+    </div>`;
+  }
 
-    // group-by-artist toggle
-    r.querySelector("#f-grp")?.addEventListener("change", ev => {
-      this._groupByArtist = ev.target.checked;
-      this._page = 1;
-      this._saveState();
-      this._render();
-    });
+  _entriesHtml() {
+    if (this._entries.length === 0) return `<div class="empty">Keine Eintraege gefunden.</div>`;
+    if (this._groupByArtist) return this._groupedEntriesHtml();
+    return this._tableHtml(this._entries);
+  }
 
-    // collapse / expand all artists
-    r.querySelector("#btn-coll-all")?.addEventListener("click", () => this._setAllCollapsed(true));
-    r.querySelector("#btn-exp-all") ?.addEventListener("click", () => this._setAllCollapsed(false));
-
-    // "Versteckte zeigen" toggle
-    r.querySelector("#f-hid")?.addEventListener("change", ev => {
-      this._includeHidden = ev.target.checked;
-      this._saveState();
-      this._loadEntries({ showLoading: true });
-    });
-
-    // bulk hide unmapped for the current source
-    r.querySelector("#btn-hide")?.addEventListener("click", () => this._hideUnmapped());
-
-    // autocomplete input (find hidden entries by typing)
-    const acInput = r.querySelector("#ac-input");
-    if (acInput) {
-      acInput.addEventListener("input", ev => this._acScheduleSearch(ev.target.value));
-      acInput.addEventListener("focus", () => {
-        if (this._acResults.length > 0) { this._acOpen = true; this._renderAcDropdown(); }
-      });
-      acInput.addEventListener("blur", () => {
-        // delay close so mousedown on a dropdown item can fire first
-        setTimeout(() => { this._acOpen = false; this._renderAcDropdown(); }, 150);
-      });
-      acInput.addEventListener("keydown", ev => {
-        if (ev.key === "Escape") this._acClose();
-      });
-      // Restore dropdown state across re-renders.
-      if (this._acOpen) this._renderAcDropdown();
+  _groupedEntriesHtml() {
+    const groups = new Map();
+    for (const entry of this._entries) {
+      const group = this._artistFrom(entry.key) || "Ohne Kuenstler";
+      if (!groups.has(group)) groups.set(group, []);
+      groups.get(group).push(entry);
     }
-
-    // artist header → toggle this group
-    r.querySelectorAll("tr.artist-hdr").forEach(row => {
-      row.addEventListener("click", () => this._toggleArtist(row.dataset.artist));
-    });
-
-    // sortable headers
-    r.querySelector("#th-k")?.addEventListener("click", () => this._toggleSort("key"));
-    r.querySelector("#th-e")?.addEventListener("click", () => this._toggleSort("enum"));
-    r.querySelector("#th-l")?.addEventListener("click", () => this._toggleSort("last_seen"));
-
-    // enum inputs — explicit save button; blur validates
-    r.querySelectorAll(".ei").forEach(inp => {
-      const btn = r.querySelector(
-        `.save-row[data-eid="${CSS.escape(inp.dataset.eid)}"][data-key="${CSS.escape(inp.dataset.key)}"]`
-      );
-      const dot = inp.parentElement?.querySelector(".enum-dot");
-      inp.addEventListener("input", () => {
-        this._setInputDirty(inp, btn, inp.value !== inp.dataset.original);
-        if (dot) {
-          const v = parseInt(inp.value, 10);
-          dot.dataset.enum = (Number.isInteger(v) && v >= 0 && v <= 9) ? String(v) : "0";
-        }
-      });
-      inp.addEventListener("blur", () => {
-        const orig = parseInt(inp.dataset.original, 10);
-        const val  = parseInt(inp.value, 10);
-        if (isNaN(val))         { inp.value = orig; return; }
-        if (val === orig)       return;
-        if (val < 0 || val > 9) {
-          this._toast("Wert muss 0–9 sein", "error");
-          inp.value = orig;
-          return;
-        }
-      });
-    });
-    r.querySelectorAll(".save-row").forEach(btn => {
-      btn.addEventListener("click", () => {
-        const inp = r.querySelector(
-          `.ei[data-eid="${CSS.escape(btn.dataset.eid)}"][data-key="${CSS.escape(btn.dataset.key)}"]`
-        );
-        if (inp) this._saveInput(inp);
-      });
-    });
-
-    // pagination
-    r.querySelectorAll(".pb").forEach(b =>
-      b.addEventListener("click", () => { this._page = +b.dataset.p; this._render(); })
-    );
-    r.querySelector("#pg-p")?.addEventListener("click", () => {
-      if (this._page > 1) { this._page--; this._render(); }
-    });
-    r.querySelector("#pg-n")?.addEventListener("click", () => {
-      if (this._page < totalPages) { this._page++; this._render(); }
-    });
+    return [...groups.entries()].map(([group, rows]) => `
+      <div>
+        <div class="toolbar"><strong>${this._esc(group)}</strong><span class="meta">${rows.length} Titel</span></div>
+        ${this._tableHtml(rows)}
+      </div>
+    `).join("");
   }
 
-  // ── utilities ─────────────────────────────────────────────────────────────
-
-  _renderSignature(view) {
-    return JSON.stringify({
-      sources:            this._sources,
-      entries:            this._entries,
-      filterSource:       this._filterSource,
-      filterUnclassified: this._filterUnclassified,
-      filterSearch:       this._filterSearch,
-      sortBy:             this._sortBy,
-      sortAsc:            this._sortAsc,
-      groupByArtist:      this._groupByArtist,
-      showLegend:         this._showLegend,
-      includeHidden:      this._includeHidden,
-      acQuery:            this._acQuery,
-      collapsed:          [...this._collapsedArtists],
-      mode:               view.mode,
-      page:               view.page,
-      loading:            this._loading,
-    });
+  _tableHtml(rows) {
+    return `<table class="table">
+      <thead><tr>
+        <th data-sort="key">Titel</th>
+        <th data-sort="source">Quelle</th>
+        <th data-sort="enum">Kategorie</th>
+        <th data-sort="seen_count">Sichtungen</th>
+        <th data-sort="last_seen">Zuletzt</th>
+      </tr></thead>
+      <tbody>${rows.map(entry => this._entryRow(entry)).join("")}</tbody>
+    </table>`;
   }
 
-  _toast(msg, type = "info") {
-    this.shadowRoot?.querySelectorAll(".toast").forEach(t => t.remove());
-    const el = document.createElement("div");
-    el.className = `toast ${type}`;
-    el.textContent = msg;
-    this.shadowRoot.appendChild(el);
-    setTimeout(() => el.remove(), 3500);
+  _entryRow(entry) {
+    const selected = this._selected && this._sameEntry(entry, this._selected);
+    return `<tr class="row ${selected ? "selected" : ""}" data-eid="${this._esc(entry.entry_id)}" data-key="${this._esc(entry.key)}">
+      <td class="title-cell">
+        <strong>${this._esc(entry.key)} ${entry.is_current ? `<span class="source-pill">aktiv</span>` : ""}</strong>
+        <div class="meta">${this._typeLabel(entry.watcher_type)}${entry.hidden ? " · ausgeblendet" : ""}</div>
+      </td>
+      <td><span class="source-pill">${this._esc(entry.source_name)}</span></td>
+      <td>${this._enumPills(entry)}</td>
+      <td>${entry.seen_count ?? 0}</td>
+      <td>${this._rel(entry.last_seen)}</td>
+    </tr>`;
+  }
+
+  _enumPills(entry) {
+    return `<div class="enum-pills">${ENUMS.map(value => `
+      <button class="enum-pill ${entry.enum === value ? "active" : ""}" style="--pill: var(--enum-${value})"
+              data-enum="${value}" data-eid="${this._esc(entry.entry_id)}" data-key="${this._esc(entry.key)}"
+              title="${value === 0 ? "Unklassifiziert" : `Kategorie ${value}`}">${value}</button>
+    `).join("")}</div>`;
+  }
+
+  _drawerHtml() {
+    const entry = this._selected || this._currentEntry();
+    if (!entry) return `<aside class="card drawer"><div class="empty">Eintrag auswaehlen, um Details zu sehen.</div></aside>`;
+    return `<aside class="card drawer">
+      <div class="drawer-head">
+        <div><h2>${this._esc(entry.key)}</h2><div class="meta">${this._esc(entry.source_name)} · ${this._typeLabel(entry.watcher_type)}</div></div>
+        <button class="btn" id="close-detail">x</button>
+      </div>
+      <div class="cover">${this._kindIcon(entry.watcher_type)}</div>
+      <div class="details">
+        ${this._detail("Enum", entry.enum)}
+        ${this._detail("Quelle", entry.source_name)}
+        ${this._detail("Ersterkannt", this._date(entry.first_seen))}
+        ${this._detail("Zuletzt gesehen", this._date(entry.last_seen))}
+        ${this._detail("Sichtungen", entry.seen_count ?? 0)}
+        ${this._detail("Status", entry.hidden ? "Ausgeblendet" : (entry.is_current ? "Aktuell" : "Normal"))}
+      </div>
+      <div>${this._enumPills(entry)}</div>
+      <div class="toolbar" style="padding-left:0;padding-right:0;border-bottom:0">
+        <button class="btn danger" id="delete-entry" data-eid="${this._esc(entry.entry_id)}" data-key="${this._esc(entry.key)}">Loeschen</button>
+      </div>
+    </aside>`;
+  }
+
+  _importHtml() {
+    return `<section class="card import-grid">
+      <div>
+        <h2>Export</h2>
+        <p class="meta">Lesbarer JSON-Export aller bekannten Entries mit Quelle, Enum und Sichtungsdaten.</p>
+        <button class="btn primary" id="make-export">JSON erzeugen</button>
+        <textarea readonly>${this._esc(this._exportText)}</textarea>
+      </div>
+      <div>
+        <h2>Import</h2>
+        <p class="meta">JSON mit entries-Array einfuegen. Vorhandene Keys werden aktualisiert.</p>
+        <textarea id="import-text" placeholder='{"entries":[{"entry_id":"...","key":"Overwatch","enum":1}]}'>${this._esc(this._importText)}</textarea>
+        <button class="btn primary" id="run-import">Import starten</button>
+      </div>
+    </section>`;
+  }
+
+  _settingsHtml() {
+    return `<section class="card settings">
+      <h2>Einstellungen</h2>
+      <p>Der Title Classifier speichert pro Watcher erkannte Keys in Home Assistants Storage und gibt stabile Enum-Werte an Automationen weiter.</p>
+      <p>Cover-Caching ist in diesem Rework bewusst nicht produktiv aktiviert. Das UI verwendet Platzhalter und zeigt keine aktuellen Media-Player-Cover fuer historische Eintraege, damit keine falschen Cover entstehen.</p>
+      <p>Neue Watcher werden ueber den Home-Assistant-Integrationsdialog angelegt. Das Panel nutzt weiterhin die bestehenden Services und WebSocket-Kommandos.</p>
+    </section>`;
+  }
+
+  _wire() {
+    const root = this.shadowRoot;
+    root.querySelectorAll("[data-view]").forEach(btn => btn.addEventListener("click", () => this._setView(btn.dataset.view)));
+    root.querySelector("#global-search")?.addEventListener("input", ev => this._setFilter("_filterSearch", ev.target.value));
+    root.querySelector("#refresh")?.addEventListener("click", () => this._load());
+    root.querySelector("#add-watcher")?.addEventListener("click", () => {
+      window.history.pushState(null, "", "/config/integrations/integration/title_classifier");
+      window.dispatchEvent(new CustomEvent("location-changed"));
+    });
+    root.querySelector("#filter-source")?.addEventListener("change", ev => this._setFilter("_filterSource", ev.target.value));
+    root.querySelector("#filter-class")?.addEventListener("change", ev => this._setFilter("_filterClass", ev.target.value));
+    root.querySelector("#filter-type")?.addEventListener("change", ev => this._setFilter("_filterType", ev.target.value));
+    root.querySelector("#include-hidden")?.addEventListener("change", ev => this._setFilter("_includeHidden", ev.target.checked));
+    root.querySelector("#group-artist")?.addEventListener("change", ev => this._setFilter("_groupByArtist", ev.target.checked));
+    root.querySelector("#hide-unmapped")?.addEventListener("click", () => this._hideUnmapped(this._filterSource));
+    root.querySelectorAll("[data-sort]").forEach(th => th.addEventListener("click", () => this._toggleSort(th.dataset.sort)));
+    root.querySelectorAll(".row").forEach(row => row.addEventListener("click", ev => {
+      if (ev.target.closest(".enum-pill")) return;
+      this._selected = this._allEntries.find(e => e.entry_id === row.dataset.eid && e.key === row.dataset.key) || null;
+      this._render();
+    }));
+    root.querySelectorAll(".enum-pill").forEach(btn => btn.addEventListener("click", ev => {
+      ev.stopPropagation();
+      const entry = this._allEntries.find(e => e.entry_id === btn.dataset.eid && e.key === btn.dataset.key);
+      if (entry) this._setEnum({ ...entry }, Number(btn.dataset.enum));
+    }));
+    root.querySelector("#close-detail")?.addEventListener("click", () => { this._selected = null; this._render(); });
+    root.querySelector("#delete-entry")?.addEventListener("click", btn => {
+      const target = btn.currentTarget;
+      const entry = this._allEntries.find(e => e.entry_id === target.dataset.eid && e.key === target.dataset.key);
+      if (entry) this._deleteEntry(entry);
+    });
+    root.querySelector("#make-export")?.addEventListener("click", () => this._exportJson());
+    root.querySelector("#import-text")?.addEventListener("input", ev => { this._importText = ev.target.value; });
+    root.querySelector("#run-import")?.addEventListener("click", () => this._importJson());
+  }
+
+  _metric(icon, value, label, hint) {
+    return `<article class="card metric"><div class="ico">${this._icon(icon)}</div><div><strong>${this._esc(value)}</strong><span>${this._esc(label)}</span><div class="meta">${this._esc(hint)}</div></div></article>`;
+  }
+
+  _detail(label, value) {
+    return `<div class="detail-row"><span>${this._esc(label)}</span><strong>${this._esc(value)}</strong></div>`;
+  }
+
+  _viewTitle() {
+    return VIEWS.find(([id]) => id === this._view)?.[1] || "Uebersicht";
+  }
+
+  _viewSubtitle() {
+    return {
+      overview: "Stabile Kategorien fuer Titel, Spiele und Aktivitaeten",
+      inbox: "Unklassifizierte Eintraege schnell einordnen",
+      catalog: "Alle bekannten Entries durchsuchen und pflegen",
+      watchers: "Quellen und aktuelle Erkennungen im Blick behalten",
+      import: "Kataloge als JSON sichern oder einspielen",
+      settings: "Verhalten und Design der Workbench",
+    }[this._view] || "";
+  }
+
+  _manifestVersion() {
+    return "1.1.0";
+  }
+
+  _typeLabel(type) {
+    return { media: "Musik / Medien", game: "Spiel / App", activity: "Aktivitaet" }[type] || type || "-";
+  }
+
+  _kindIcon(type) {
+    return { media: this._icon("music"), game: this._icon("game"), activity: this._icon("activity") }[type] || this._icon("cube");
+  }
+
+  _navIcon(id) {
+    return {
+      overview: this._icon("wave"),
+      inbox: this._icon("inbox"),
+      catalog: this._icon("db"),
+      watchers: this._icon("watch"),
+      import: this._icon("import"),
+      settings: this._icon("settings"),
+    }[id] || "";
+  }
+
+  _icon(name) {
+    const icons = {
+      cube: "◇",
+      wave: "≋",
+      inbox: "▤",
+      db: "▦",
+      watch: "⌾",
+      import: "↕",
+      settings: "⚙",
+      refresh: "↻",
+      music: "♪",
+      game: "☍",
+      activity: "↯",
+      bell: "◒",
+      time: "◴",
+    };
+    return icons[name] || "•";
+  }
+
+  _artistFrom(key) {
+    const idx = String(key || "").indexOf(" - ");
+    return idx >= 0 ? key.slice(0, idx) : "";
+  }
+
+  _date(iso) {
+    if (!iso) return "-";
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return iso;
+    return date.toLocaleString();
   }
 
   _rel(iso) {
-    if (!iso) return "—";
-    const s = Math.floor(Math.abs(Date.now() - new Date(iso)) / 1000);
-    if (isNaN(s))   return iso;
-    if (s < 60)     return `${s}s`;
-    if (s < 3600)   return `${Math.floor(s / 60)}m`;
-    if (s < 86400)  return `${Math.floor(s / 3600)}h`;
-    return `${Math.floor(s / 86400)}d`;
+    if (!iso) return "-";
+    const seconds = Math.floor(Math.abs(Date.now() - new Date(iso)) / 1000);
+    if (Number.isNaN(seconds)) return "-";
+    if (seconds < 60) return `${seconds}s`;
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
+    return `${Math.floor(seconds / 86400)}d`;
   }
 
-  _esc(v) {
-    return String(v ?? "")
-      .replace(/&/g, "&amp;").replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  _esc(value) {
+    return String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
   }
 }
 
