@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.1 - 2026-06-01
+
+- Fixed enum pill assignment in the Workbench UI so clicking `0` to `9`
+  reliably assigns that enum to the exact title row.
+- Added a visible saving state for enum pills and switched row lookup from
+  fragile title attributes to stable encoded entry tokens.
+
 ## 1.1.0 - 2026-06-01
 
 - Reworked the sidebar panel into a Dracula-inspired Classification Workbench

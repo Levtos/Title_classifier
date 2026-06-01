@@ -38,6 +38,7 @@ class TitleClassifierPanel extends HTMLElement {
     this._sortAsc = false;
     this._exportText = "";
     this._importText = "";
+    this._savingTokens = new Set();
 
     this._loadState();
   }
@@ -188,11 +189,21 @@ class TitleClassifierPanel extends HTMLElement {
     return a?.entry_id === b?.entry_id && a?.key === b?.key;
   }
 
-  async _setEnum(entry, value) {
+  _entryToken(entry) {
+    return encodeURIComponent(`${entry.entry_id}\u0000${entry.key}`);
+  }
+
+  _entryByToken(token) {
+    const decoded = decodeURIComponent(token || "");
+    const [entryId, key] = decoded.split("\u0000");
+    return this._allEntries.find(entry => entry.entry_id === entryId && entry.key === key);
+  }
+
+  async _setEnum(entry, value, token) {
     const previous = entry.enum;
+    this._savingTokens.add(token);
     entry.enum = value;
     this._syncEntry(entry);
-    this._applyFilters();
     this._render();
     try {
       await this._ws({
@@ -202,13 +213,15 @@ class TitleClassifierPanel extends HTMLElement {
         enum_value: value,
       });
       await this._load({ quiet: true });
-      this._toast(`Kategorie ${value} gespeichert`, "success");
+      this._toast(`Enum ${value} fuer "${entry.key}" gespeichert`, "success");
     } catch (err) {
       entry.enum = previous;
       this._syncEntry(entry);
+      this._toast(`Speichern fehlgeschlagen: ${err.message}`, "error");
+    } finally {
+      this._savingTokens.delete(token);
       this._applyFilters();
       this._render();
-      this._toast(`Speichern fehlgeschlagen: ${err.message}`, "error");
     }
   }
 
@@ -467,6 +480,8 @@ textarea { width: 100%; min-height: 220px; padding: 12px; resize: vertical; font
   background: rgba(255,255,255,.035); color: var(--tc-muted); cursor: pointer; padding: 0;
 }
 .enum-pill.active { color: #fff; border-color: var(--pill); background: color-mix(in srgb, var(--pill) 45%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--pill) 35%, transparent); }
+.enum-pill.saving { cursor: progress; opacity: .7; }
+.enum-pill:disabled { cursor: progress; }
 .drawer { padding: 16px; position: sticky; top: 22px; align-self: start; }
 .drawer-head { display: flex; justify-content: space-between; gap: 12px; align-items: start; margin-bottom: 16px; }
 .drawer h2 { margin: 0; font-size: 1.05rem; }
@@ -666,10 +681,14 @@ textarea { width: 100%; min-height: 220px; padding: 12px; resize: vertical; font
   }
 
   _enumPills(entry) {
+    const token = this._entryToken(entry);
+    const saving = this._savingTokens.has(token);
     return `<div class="enum-pills">${ENUMS.map(value => `
-      <button class="enum-pill ${entry.enum === value ? "active" : ""}" style="--pill: var(--enum-${value})"
-              data-enum="${value}" data-eid="${this._esc(entry.entry_id)}" data-key="${this._esc(entry.key)}"
-              title="${value === 0 ? "Unklassifiziert" : `Kategorie ${value}`}">${value}</button>
+      <button type="button" class="enum-pill ${entry.enum === value ? "active" : ""} ${saving ? "saving" : ""}"
+              style="--pill: var(--enum-${value})"
+              data-enum="${value}" data-token="${this._esc(token)}"
+              ${saving ? "disabled" : ""}
+              title="${value === 0 ? "Enum 0: Unklassifiziert" : `Enum ${value} zuordnen`}">${saving && entry.enum === value ? "..." : value}</button>
     `).join("")}</div>`;
   }
 
@@ -745,9 +764,10 @@ textarea { width: 100%; min-height: 220px; padding: 12px; resize: vertical; font
       this._render();
     }));
     root.querySelectorAll(".enum-pill").forEach(btn => btn.addEventListener("click", ev => {
+      ev.preventDefault();
       ev.stopPropagation();
-      const entry = this._allEntries.find(e => e.entry_id === btn.dataset.eid && e.key === btn.dataset.key);
-      if (entry) this._setEnum({ ...entry }, Number(btn.dataset.enum));
+      const entry = this._entryByToken(btn.dataset.token);
+      if (entry) this._setEnum({ ...entry }, Number(btn.dataset.enum), btn.dataset.token);
     }));
     root.querySelector("#close-detail")?.addEventListener("click", () => { this._selected = null; this._render(); });
     root.querySelector("#delete-entry")?.addEventListener("click", btn => {
@@ -784,7 +804,7 @@ textarea { width: 100%; min-height: 220px; padding: 12px; resize: vertical; font
   }
 
   _manifestVersion() {
-    return "1.1.0";
+    return "1.1.1";
   }
 
   _typeLabel(type) {
