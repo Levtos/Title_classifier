@@ -20,7 +20,13 @@ import tc_runtime as R
 class _State:
     """Minimal stand-in for `homeassistant.core.State`."""
 
-    def __init__(self, state: str, attributes: dict | None = None) -> None:
+    def __init__(
+        self,
+        state: str,
+        attributes: dict | None = None,
+        entity_id: str = "media_player.homepods",
+    ) -> None:
+        self.entity_id = entity_id
         self.state = state
         self.attributes = dict(attributes or {})
 
@@ -161,6 +167,23 @@ def test_no_artist_and_no_station_yields_bare_title():
         "media_title": "Mystery Track",
     })
     assert rt.key_from_state(state) == "Mystery Track"
+
+
+def test_media_sensor_uses_state_as_title_when_title_attributes_are_missing():
+    """Hotfix: sensor-based media watchers often expose the changing title
+    as their state, not as a media_title attribute."""
+    rt = _make_runtime(_Entry(source="sensor.ps5_current_title"))
+    state = _State(
+        "Astro Bot",
+        entity_id="sensor.ps5_current_title",
+    )
+    assert rt.key_from_state(state) == "Astro Bot"
+
+
+def test_media_player_state_is_not_used_as_title_without_title_attributes():
+    rt = _make_runtime(_Entry(source="media_player.homepods"))
+    state = _State("playing", entity_id="media_player.homepods")
+    assert rt.key_from_state(state) is None
 
 
 # ---------------------------------------------------------------------------

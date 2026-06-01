@@ -144,7 +144,7 @@ class WatcherRuntime:
             return None
         watcher_type = self.entry.data[CONF_WATCHER_TYPE]
         title = self._title_from_attributes(state, watcher_type)
-        if title is None and watcher_type != "media":
+        if title is None and (watcher_type != "media" or is_sensor_state(state)):
             title = clean_value(state.state)
         if title is None:
             return None
@@ -239,6 +239,11 @@ def clean_value(value: Any) -> str | None:
     if value.lower() in IGNORED_RAW_VALUES:
         return None
     return value
+
+
+def is_sensor_state(state: State) -> bool:
+    """Return whether the state belongs to a sensor entity."""
+    return str(getattr(state, "entity_id", "")).split(".", 1)[0] == "sensor"
 
 
 # Substrings that mark a value as a Music-Assistant / queue internal
