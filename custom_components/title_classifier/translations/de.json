@@ -3,19 +3,19 @@
     "step": {
       "user": {
         "title": "Title-Classifier-Watcher erstellen",
-        "description": "Wähle die Entität, deren Titel-/Statuswerte auf einen Enum gemappt werden sollen.",
+        "description": "Lege fest, welche Home-Assistant-Entität beobachtet wird und welche Art von Wert daraus klassifiziert werden soll.",
         "data": {
-          "name": "Name",
-          "source_entity": "Quell-Entität",
-          "watcher_type": "Watcher-Typ",
-          "retention_days": "Retention-Tage"
+          "name": "Name des Watchers",
+          "source_entity": "Welche Entität soll beobachtet werden?",
+          "watcher_type": "Was wird erkannt?",
+          "retention_days": "Wie lange sollen alte Einträge behalten werden?"
         }
       },
       "artist": {
-        "title": "Artist-Attribut auswählen",
-        "description": "Wähle das Attribut, das den Artist/Autor für diesen Media-Watcher enthält.",
+        "title": "Künstler-Attribut auswählen",
+        "description": "Optional: Wähle das Attribut, das Künstler, Autor oder Sendername liefert. Wenn es nicht passt, fällt die Integration auf bekannte Media-Attribute zurück.",
         "data": {
-          "artist_attribute": "Artist-Attribut"
+          "artist_attribute": "Künstler-/Sender-Attribut"
         }
       }
     }
@@ -23,10 +23,10 @@
   "options": {
     "step": {
       "init": {
-        "title": "Title-Classifier-Watcher-Optionen",
+        "title": "Watcher-Optionen",
         "data": {
-          "retention_days": "Retention-Tage",
-          "auto_hide_hours": "Auto-Hide nach N Stunden (0 = aus)"
+          "retention_days": "Alte Einträge behalten für Tage",
+          "auto_hide_hours": "Unklassifizierte automatisch ausblenden nach Stunden (0 = aus)"
         }
       }
     }

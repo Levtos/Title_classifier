@@ -24,8 +24,13 @@ from .const import (
     CONF_WATCHER_TYPE,
     DEFAULT_ARTIST_ATTRIBUTE,
     MODULE_ID,
-    WATCHER_TYPES,
 )
+
+WATCHER_TYPE_OPTIONS = [
+    {"value": "media", "label": "Musik / Medien"},
+    {"value": "game", "label": "Spiel / App"},
+    {"value": "activity", "label": "Aktivität"},
+]
 
 
 # ---------------------------------------------------------------------------
@@ -92,7 +97,7 @@ class ConfigFlowHelper:
                     selector.EntitySelectorConfig(domain=["media_player", "sensor"])
                 ),
                 vol.Required(CONF_WATCHER_TYPE, default="media"): selector.SelectSelector(
-                    selector.SelectSelectorConfig(options=list(WATCHER_TYPES))
+                    selector.SelectSelectorConfig(options=WATCHER_TYPE_OPTIONS)
                 ),
                 vol.Optional(CONF_RETENTION_DAYS): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=1, step=1, mode="box")
