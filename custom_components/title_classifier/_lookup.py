@@ -29,7 +29,7 @@ def require_runtime(hass: HomeAssistant, entry_id: str) -> WatcherRuntime:
 def all_runtimes(hass: HomeAssistant) -> list[WatcherRuntime]:
     out: list[WatcherRuntime] = []
     for bucket in hass.data.get(DOMAIN, {}).get(DATA_ENTRIES, {}).values():
-        if bucket.get("module_id") != MODULE_ID:
+        if bucket.get("module_id", MODULE_ID) != MODULE_ID:
             continue
         rt = bucket.get("runtime")
         if rt is not None:

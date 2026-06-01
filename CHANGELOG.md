@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.2 - 2026-06-01
+
+- Fixed the Title Classifier panel showing `0` entries while entity sensors
+  already reported catalog entries. WebSocket source/list commands now see
+  standalone runtime buckets even when older in-memory buckets do not carry a
+  `module_id` field.
+- Stamped new runtime buckets with `module_id` during setup.
+
 ## 1.0.1 - 2026-06-01
 
 - Fixed media watchers backed by `sensor.*` entities so the sensor state is

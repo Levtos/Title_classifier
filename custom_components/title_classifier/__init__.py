@@ -60,7 +60,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             DATA_WEBSOCKETS_REGISTERED: False,
         },
     )
-    hass.data[DOMAIN][DATA_ENTRIES][entry.entry_id] = {"status": "loading"}
+    hass.data[DOMAIN][DATA_ENTRIES][entry.entry_id] = {
+        "module_id": MODULE_ID,
+        "status": "loading",
+    }
 
     runtime = WatcherRuntime(hass, entry)
     try:
@@ -70,6 +73,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         raise
 
     bucket = hass.data[DOMAIN][DATA_ENTRIES].setdefault(entry.entry_id, {})
+    bucket["module_id"] = MODULE_ID
     bucket["runtime"] = runtime
     bucket["status"] = "ready"
 
