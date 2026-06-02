@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import voluptuous as vol
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 
 from .services import ServiceDef
@@ -12,6 +13,7 @@ from .const import (
     ATTR_ENTRIES,
     ATTR_ENTRY_ID,
     ATTR_KEY,
+    CATEGORIES,
     MAX_ENUM,
     MIN_ENUM,
     SERVICE_CLEAR_OLD,
@@ -20,7 +22,7 @@ from .const import (
     SERVICE_IMPORT_LOCAL_STORAGE,
     SERVICE_SET_ENUM,
 )
-from .migration import async_import_local_storage
+from .migration import async_import_local_storage, async_import_to_catalog
 from .runtime import normalise_user_key
 
 IMPORT_ENTRY_SCHEMA = vol.Schema({
@@ -65,12 +67,34 @@ async def _import_entries(hass: HomeAssistant, call: ServiceCall) -> None:
 
 
 async def _import_local_storage(hass: HomeAssistant, call: ServiceCall) -> dict:
-    runtime = require_runtime(hass, call.data[ATTR_ENTRY_ID])
-    return await async_import_local_storage(
+    entry_id = call.data.get(ATTR_ENTRY_ID)
+    source_entry_id = call.data.get("source_entry_id")
+    source_storage_key = call.data.get("source_storage_key")
+    dry_run = call.data.get("dry_run", False)
+
+    if entry_id:
+        runtime = require_runtime(hass, entry_id)
+        return await async_import_local_storage(
+            hass,
+            runtime,
+            source_entry_id=source_entry_id,
+            source_storage_key=source_storage_key,
+            dry_run=dry_run,
+        )
+
+    scope = call.data.get("scope")
+    category = call.data.get("category")
+    if not scope or not category:
+        raise ServiceValidationError(
+            "Entweder entry_id, oder scope + category angeben."
+        )
+    return await async_import_to_catalog(
         hass,
-        runtime,
-        source_entry_id=call.data.get("source_entry_id"),
-        dry_run=call.data.get("dry_run", False),
+        scope=scope,
+        category=category,
+        source_entry_id=source_entry_id,
+        source_storage_key=source_storage_key,
+        dry_run=dry_run,
     )
 
 
@@ -107,8 +131,11 @@ SERVICES: dict[str, ServiceDef] = {
     SERVICE_IMPORT_LOCAL_STORAGE: ServiceDef(
         handler=_import_local_storage,
         schema=vol.Schema({
-            vol.Required(ATTR_ENTRY_ID): cv.string,
+            vol.Optional(ATTR_ENTRY_ID): cv.string,
+            vol.Optional("scope"): cv.string,
+            vol.Optional("category"): vol.In(CATEGORIES),
             vol.Optional("source_entry_id"): cv.string,
+            vol.Optional("source_storage_key"): cv.string,
             vol.Optional("dry_run", default=False): cv.boolean,
         }),
         supports_response=SupportsResponse.OPTIONAL,

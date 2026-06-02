@@ -111,6 +111,16 @@ async def async_get_pool(hass: HomeAssistant, dsn: str) -> Any:
     return slot["pool"]
 
 
+def get_existing_pool(hass: HomeAssistant, dsn: str) -> Any | None:
+    """Return the already-created pool for *dsn* without touching its refcount.
+
+    For transient one-shot use (e.g. the migration service) that piggybacks on
+    a pool the hub already owns — so it must not create or release references.
+    """
+    slot = hass.data.get(DOMAIN, {}).get(DATA_POOLS, {}).get(dsn)
+    return slot["pool"] if slot else None
+
+
 async def async_release_pool(hass: HomeAssistant, dsn: str) -> None:
     """Drop one reference to the pool for *dsn*; close it when the last goes."""
     pools: dict[str, dict[str, Any]] = hass.data.get(DOMAIN, {}).get(DATA_POOLS, {})

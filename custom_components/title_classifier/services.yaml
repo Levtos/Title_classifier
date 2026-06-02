@@ -55,21 +55,50 @@ import_entries:
 import_local_storage:
   name: Lokale Daten importieren
   description: >-
-    Importiert die alten .storage-Einträge eines Watchers einmalig in den
-    gemeinsamen Postgres-Katalog. Idempotent; die .storage-Datei wird nur
-    gelesen.
+    Importiert alte .storage-Einträge einmalig in den gemeinsamen Postgres-
+    Katalog. Ziel ist entweder ein Watcher (entry_id) oder direkt scope +
+    category. Quelle ist die eigene .storage oder ein beliebiger Storage-Key
+    (z. B. etm_<id>). Idempotent; die Quelldatei wird nur gelesen.
   fields:
     entry_id:
       name: Ziel-Watcher
-      description: entry_id des Watchers, in dessen Scope/Kategorie importiert wird.
-      required: true
+      description: >-
+        entry_id des Watchers, in dessen scope/category importiert wird. Leer
+        lassen und stattdessen scope + category angeben, um ohne Watcher zu
+        importieren.
+      required: false
       selector:
         text:
+    scope:
+      name: Scope
+      description: Ziel-Scope, wenn kein entry_id angegeben ist (z. B. default).
+      required: false
+      selector:
+        text:
+    category:
+      name: Kategorie
+      description: Ziel-Kategorie, wenn kein entry_id angegeben ist.
+      required: false
+      selector:
+        select:
+          options:
+            - music
+            - game
+            - tv
+            - stash
     source_entry_id:
       name: Quell-entry_id
       description: >-
-        Optional: entry_id der zu lesenden alten .storage-Datei. Leer = die
+        Optional: entry_id der zu lesenden Title-Classifier-.storage. Leer = die
         eigene entry_id des Ziel-Watchers.
+      required: false
+      selector:
+        text:
+    source_storage_key:
+      name: Quell-Storage-Key
+      description: >-
+        Optional: voller Storage-Key der zu lesenden Datei, z. B.
+        etm_01KR3F6XQ7Q934CS343M3GVCAJ (für Daten der alten etm-Integration).
       required: false
       selector:
         text:
