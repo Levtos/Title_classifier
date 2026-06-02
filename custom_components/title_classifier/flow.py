@@ -189,6 +189,13 @@ class ConfigFlowHelper:
             return self.flow.async_update_reload_and_abort(entry, data=new_data)
 
         d = entry.data
+        # Prefill the DB connection from this entry, falling back to any other
+        # already-configured watcher — so you only type it once, then confirm.
+        inherited = existing_db_config(self.hass) or {}
+
+        def _db(key: str, fallback: Any = "") -> Any:
+            return d.get(key) or inherited.get(key) or fallback
+
         return self.flow.async_show_form(
             step_id="reconfigure",
             data_schema=vol.Schema({
@@ -204,21 +211,21 @@ class ConfigFlowHelper:
                     CONF_SCOPE, default=d.get(CONF_SCOPE, DEFAULT_SCOPE)
                 ): selector.TextSelector(),
                 vol.Required(
-                    CONF_DB_HOST, default=d.get(CONF_DB_HOST, "")
+                    CONF_DB_HOST, default=_db(CONF_DB_HOST)
                 ): selector.TextSelector(),
                 vol.Required(
-                    CONF_DB_PORT, default=int(d.get(CONF_DB_PORT, DEFAULT_DB_PORT))
+                    CONF_DB_PORT, default=int(_db(CONF_DB_PORT, DEFAULT_DB_PORT))
                 ): selector.NumberSelector(
                     selector.NumberSelectorConfig(min=1, max=65535, step=1, mode="box")
                 ),
                 vol.Required(
-                    CONF_DB_NAME, default=d.get(CONF_DB_NAME, DEFAULT_DB_NAME)
+                    CONF_DB_NAME, default=_db(CONF_DB_NAME, DEFAULT_DB_NAME)
                 ): selector.TextSelector(),
                 vol.Required(
-                    CONF_DB_USER, default=d.get(CONF_DB_USER, "")
+                    CONF_DB_USER, default=_db(CONF_DB_USER)
                 ): selector.TextSelector(),
                 vol.Required(
-                    CONF_DB_PASSWORD, default=d.get(CONF_DB_PASSWORD, "")
+                    CONF_DB_PASSWORD, default=_db(CONF_DB_PASSWORD)
                 ): selector.TextSelector(
                     selector.TextSelectorConfig(type="password")
                 ),
