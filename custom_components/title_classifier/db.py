@@ -7,6 +7,7 @@ data. The target is a DEDICATED database on LXC 108 — never the recorder DB.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import Any, Final
@@ -35,6 +36,7 @@ DEFAULT_DB_NAME: Final = "media_catalog"
 
 # hass.data slot holding shared pools keyed by DSN: {dsn: {"pool", "refs"}}.
 DATA_POOLS: Final = "db_pools"
+DATA_POOL_LOCK: Final = "db_pool_lock"
 
 NOTIFY_CHANNEL: Final = "catalog_change"
 
@@ -89,37 +91,44 @@ def build_dsn(config: dict[str, Any]) -> str:
     return f"postgresql://{user}:{password}@{host}:{port}/{name}"
 
 
+def _pool_lock(hass: HomeAssistant) -> asyncio.Lock:
+    return hass.data.setdefault(DOMAIN, {}).setdefault(DATA_POOL_LOCK, asyncio.Lock())
+
+
 async def async_get_pool(hass: HomeAssistant, dsn: str) -> Any:
     """Return the shared asyncpg pool for *dsn*, creating it on first use.
 
-    One pool per DSN is reused across all watcher config entries of this
-    instance. Callers must pair this with :func:`async_release_pool` on unload.
+    One pool per DSN is reused across all config entries of this instance.
+    Serialised by a lock so concurrent entry setups can't each create their own
+    pool (which corrupted the refcount and caused "pool is closing"). Callers
+    must pair this with :func:`async_release_pool` on unload.
     """
     import asyncpg  # deferred: declared in manifest requirements
 
-    pools: dict[str, dict[str, Any]] = hass.data.setdefault(DOMAIN, {}).setdefault(
-        DATA_POOLS, {}
-    )
-    slot = pools.get(dsn)
-    if slot is None:
-        _LOGGER.debug("Creating asyncpg pool for media catalog")
-        pool = await asyncpg.create_pool(
-            dsn=dsn,
-            min_size=1,
-            max_size=5,
-            # Recycle idle connections before a stateful firewall / idle timeout
-            # can silently kill them — otherwise the next query hangs on a dead
-            # socket for minutes (e.g. a panel enum-set taking ~2 min).
-            max_inactive_connection_lifetime=60,
-            # Hard upper bound per statement so a stale connection fails fast
-            # instead of hanging; our queries are sub-second.
-            command_timeout=30,
-        )
-        slot = {"pool": pool, "refs": 0}
-        pools[dsn] = slot
-        await async_apply_schema(hass, pool)
-    slot["refs"] += 1
-    return slot["pool"]
+    async with _pool_lock(hass):
+        pools: dict[str, dict[str, Any]] = hass.data.setdefault(
+            DOMAIN, {}
+        ).setdefault(DATA_POOLS, {})
+        slot = pools.get(dsn)
+        if slot is None:
+            _LOGGER.debug("Creating asyncpg pool for media catalog")
+            pool = await asyncpg.create_pool(
+                dsn=dsn,
+                min_size=1,
+                max_size=5,
+                # Recycle idle connections before a stateful firewall / idle
+                # timeout can silently kill them — otherwise the next query
+                # hangs on a dead socket for minutes (panel enum-set ~2 min).
+                max_inactive_connection_lifetime=60,
+                # Hard upper bound per statement so a stale connection fails fast
+                # instead of hanging; our queries are sub-second.
+                command_timeout=30,
+            )
+            slot = {"pool": pool, "refs": 0}
+            pools[dsn] = slot
+            await async_apply_schema(hass, pool)
+        slot["refs"] += 1
+        return slot["pool"]
 
 
 def get_existing_pool(hass: HomeAssistant, dsn: str) -> Any | None:
@@ -134,15 +143,18 @@ def get_existing_pool(hass: HomeAssistant, dsn: str) -> Any | None:
 
 async def async_release_pool(hass: HomeAssistant, dsn: str) -> None:
     """Drop one reference to the pool for *dsn*; close it when the last goes."""
-    pools: dict[str, dict[str, Any]] = hass.data.get(DOMAIN, {}).get(DATA_POOLS, {})
-    slot = pools.get(dsn)
-    if slot is None:
-        return
-    slot["refs"] -= 1
-    if slot["refs"] <= 0:
-        _LOGGER.debug("Closing asyncpg pool (last watcher unloaded)")
-        pools.pop(dsn, None)
-        await slot["pool"].close()
+    async with _pool_lock(hass):
+        pools: dict[str, dict[str, Any]] = hass.data.get(DOMAIN, {}).get(
+            DATA_POOLS, {}
+        )
+        slot = pools.get(dsn)
+        if slot is None:
+            return
+        slot["refs"] -= 1
+        if slot["refs"] <= 0:
+            _LOGGER.debug("Closing asyncpg pool (last entry unloaded)")
+            pools.pop(dsn, None)
+            await slot["pool"].close()
 
 
 async def async_apply_schema(hass: HomeAssistant, pool: Any) -> None:

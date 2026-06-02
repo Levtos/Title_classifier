@@ -23,6 +23,13 @@ from .db import NOTIFY_CHANNEL
 _LOGGER = logging.getLogger(__name__)
 
 DATA_LISTENERS: Final = "catalog_listeners"
+DATA_LISTENER_LOCK: Final = "catalog_listener_lock"
+
+
+def _listener_lock(hass: HomeAssistant) -> asyncio.Lock:
+    return hass.data.setdefault(DOMAIN, {}).setdefault(
+        DATA_LISTENER_LOCK, asyncio.Lock()
+    )
 
 _RECONNECT_BACKOFF = (1, 2, 5, 10, 30, 60)  # seconds, last value repeats
 
@@ -130,27 +137,29 @@ async def async_ensure_listener(
     hass: HomeAssistant, dsn: str, instance_id: str
 ) -> None:
     """Start (or refcount) the shared listener for *dsn*."""
-    listeners: dict[str, dict[str, Any]] = hass.data.setdefault(DOMAIN, {}).setdefault(
-        DATA_LISTENERS, {}
-    )
-    slot = listeners.get(dsn)
-    if slot is None:
-        listener = CatalogListener(hass, dsn, instance_id)
-        await listener.async_start()
-        slot = {"listener": listener, "refs": 0}
-        listeners[dsn] = slot
-    slot["refs"] += 1
+    async with _listener_lock(hass):
+        listeners: dict[str, dict[str, Any]] = hass.data.setdefault(
+            DOMAIN, {}
+        ).setdefault(DATA_LISTENERS, {})
+        slot = listeners.get(dsn)
+        if slot is None:
+            listener = CatalogListener(hass, dsn, instance_id)
+            await listener.async_start()
+            slot = {"listener": listener, "refs": 0}
+            listeners[dsn] = slot
+        slot["refs"] += 1
 
 
 async def async_release_listener(hass: HomeAssistant, dsn: str) -> None:
     """Drop one reference to the listener for *dsn*; stop it when the last goes."""
-    listeners: dict[str, dict[str, Any]] = hass.data.get(DOMAIN, {}).get(
-        DATA_LISTENERS, {}
-    )
-    slot = listeners.get(dsn)
-    if slot is None:
-        return
-    slot["refs"] -= 1
-    if slot["refs"] <= 0:
-        listeners.pop(dsn, None)
-        await slot["listener"].async_stop()
+    async with _listener_lock(hass):
+        listeners: dict[str, dict[str, Any]] = hass.data.get(DOMAIN, {}).get(
+            DATA_LISTENERS, {}
+        )
+        slot = listeners.get(dsn)
+        if slot is None:
+            return
+        slot["refs"] -= 1
+        if slot["refs"] <= 0:
+            listeners.pop(dsn, None)
+            await slot["listener"].async_stop()
