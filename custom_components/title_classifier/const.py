@@ -22,8 +22,34 @@ CONF_WATCHER_TYPE = "watcher_type"
 CONF_RETENTION_DAYS = "retention_days"
 CONF_AUTO_HIDE_HOURS = "auto_hide_hours"
 
+# v2 shared-catalog identity fields.
+CONF_CATEGORY = "category"
+CONF_PLATFORM = "platform"
+CONF_SCOPE = "scope"
+
 WATCHER_TYPES = ("game", "media", "activity")
 DEFAULT_ARTIST_ATTRIBUTE = "media_artist"
+
+# Catalog categories (content type). `platform` (pc/ps5/switch/…) is a separate
+# attribute, never part of the identity — one game is one row across platforms.
+CATEGORIES = ("music", "game", "tv", "stash")
+DEFAULT_CATEGORY = "music"
+DEFAULT_SCOPE = "default"
+
+# How each category drives the title-extraction behaviour in runtime.py
+# (which still keys off the legacy watcher_type values).
+CATEGORY_TO_WATCHER_TYPE = {
+    "music": "media",
+    "game": "game",
+    "tv": "media",
+    "stash": "media",
+}
+# Reverse map for the one-time .storage → Postgres migration (Apply button).
+WATCHER_TYPE_TO_CATEGORY = {
+    "media": "music",
+    "game": "game",
+    "activity": "game",
+}
 
 ARTIST_ATTRIBUTE_CANDIDATES: tuple[str, ...] = (
     "media_artist",
@@ -58,6 +84,7 @@ SERVICE_DELETE_ENTRY = "delete_entry"
 SERVICE_CLEAR_OLD = "clear_old"
 SERVICE_IMPORT_ENTRIES = "import_entries"
 SERVICE_HIDE_UNMAPPED = "hide_unmapped"
+SERVICE_IMPORT_LOCAL_STORAGE = "import_local_storage"
 
 PANEL_TITLE = "Title Classifier"
 PANEL_ICON = "mdi:tag-multiple"

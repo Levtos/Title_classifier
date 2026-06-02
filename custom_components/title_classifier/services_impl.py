@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import voluptuous as vol
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.helpers import config_validation as cv
 
 from .services import ServiceDef
@@ -17,8 +17,10 @@ from .const import (
     SERVICE_CLEAR_OLD,
     SERVICE_DELETE_ENTRY,
     SERVICE_IMPORT_ENTRIES,
+    SERVICE_IMPORT_LOCAL_STORAGE,
     SERVICE_SET_ENUM,
 )
+from .migration import async_import_local_storage
 from .runtime import normalise_user_key
 
 IMPORT_ENTRY_SCHEMA = vol.Schema({
@@ -62,6 +64,16 @@ async def _import_entries(hass: HomeAssistant, call: ServiceCall) -> None:
     runtime.notify_listeners()
 
 
+async def _import_local_storage(hass: HomeAssistant, call: ServiceCall) -> dict:
+    runtime = require_runtime(hass, call.data[ATTR_ENTRY_ID])
+    return await async_import_local_storage(
+        hass,
+        runtime,
+        source_entry_id=call.data.get("source_entry_id"),
+        dry_run=call.data.get("dry_run", False),
+    )
+
+
 SERVICES: dict[str, ServiceDef] = {
     SERVICE_SET_ENUM: ServiceDef(
         handler=_set_enum,
@@ -91,5 +103,14 @@ SERVICES: dict[str, ServiceDef] = {
             vol.Required(ATTR_ENTRY_ID): cv.string,
             vol.Required(ATTR_ENTRIES): vol.All(cv.ensure_list, [IMPORT_ENTRY_SCHEMA]),
         }),
+    ),
+    SERVICE_IMPORT_LOCAL_STORAGE: ServiceDef(
+        handler=_import_local_storage,
+        schema=vol.Schema({
+            vol.Required(ATTR_ENTRY_ID): cv.string,
+            vol.Optional("source_entry_id"): cv.string,
+            vol.Optional("dry_run", default=False): cv.boolean,
+        }),
+        supports_response=SupportsResponse.OPTIONAL,
     ),
 }

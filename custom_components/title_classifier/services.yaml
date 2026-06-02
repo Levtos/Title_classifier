@@ -51,3 +51,32 @@ import_entries:
       required: true
       selector:
         object:
+
+import_local_storage:
+  name: Lokale Daten importieren
+  description: >-
+    Importiert die alten .storage-Einträge eines Watchers einmalig in den
+    gemeinsamen Postgres-Katalog. Idempotent; die .storage-Datei wird nur
+    gelesen.
+  fields:
+    entry_id:
+      name: Ziel-Watcher
+      description: entry_id des Watchers, in dessen Scope/Kategorie importiert wird.
+      required: true
+      selector:
+        text:
+    source_entry_id:
+      name: Quell-entry_id
+      description: >-
+        Optional: entry_id der zu lesenden alten .storage-Datei. Leer = die
+        eigene entry_id des Ziel-Watchers.
+      required: false
+      selector:
+        text:
+    dry_run:
+      name: Probelauf
+      description: Nur zählen, nichts schreiben.
+      required: false
+      default: false
+      selector:
+        boolean:

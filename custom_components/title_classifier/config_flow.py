@@ -13,7 +13,7 @@ from .flow import ConfigFlowHelper, OptionsFlowHelper
 
 
 class TitleClassifierConfigFlow(ConfigFlow, domain=DOMAIN):
-    VERSION = 1
+    VERSION = 2
 
     def __init__(self) -> None:
         self._helper: ConfigFlowHelper | None = None
@@ -28,10 +28,25 @@ class TitleClassifierConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> FlowResult:
         return await self.async_step_user(user_input)
 
+    async def async_step_db(self, user_input: dict[str, Any] | None = None) -> FlowResult:
+        if self._helper is None:
+            return self.async_abort(reason="invalid_flow_state")
+        return await self._helper.async_step_db(user_input)
+
     async def async_step_artist(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         if self._helper is None:
             return self.async_abort(reason="invalid_flow_state")
         return await self._helper.async_step_artist(user_input)
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        if self._helper is None:
+            self._helper = ConfigFlowHelper(self.hass, self)
+        entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
+        if entry is None:
+            return self.async_abort(reason="invalid_flow_state")
+        return await self._helper.async_step_reconfigure(entry, user_input)
 
     @staticmethod
     @callback

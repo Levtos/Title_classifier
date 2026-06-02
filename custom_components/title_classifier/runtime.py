@@ -18,26 +18,33 @@ from .const import (
     ARTIST_ATTRIBUTE_CANDIDATES,
     CONF_ARTIST_ATTRIBUTE,
     CONF_AUTO_HIDE_HOURS,
+    CONF_CATEGORY,
+    CONF_PLATFORM,
     CONF_RETENTION_DAYS,
+    CONF_SCOPE,
     CONF_SOURCE_ENTITY,
     CONF_WATCHER_TYPE,
     DEFAULT_ARTIST_ATTRIBUTE,
+    DEFAULT_CATEGORY,
+    DEFAULT_SCOPE,
     IGNORED_RAW_VALUES,
     MEDIA_FEATURE_MARKERS,
     MEDIA_RICH_TITLE_MARKERS,
     RADIO_STATION_ATTRIBUTE_CANDIDATES,
     TITLE_ATTRIBUTE_CANDIDATES,
 )
-from .storage import MapperStore
+from .postgres_store import PostgresMapperStore
 
 
 class WatcherRuntime:
     """Runtime-Zustand für einen Watcher-Config-Entry."""
 
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry, store: PostgresMapperStore
+    ) -> None:
         self.hass = hass
         self.entry = entry
-        self.store = MapperStore(hass, entry.entry_id)
+        self.store = store
         self.current_key: str | None = None
         self.current_enum: int | None = None
         self._remove_listener = None
@@ -50,6 +57,18 @@ class WatcherRuntime:
     @property
     def source_entity(self) -> str:
         return self.entry.data[CONF_SOURCE_ENTITY]
+
+    @property
+    def category(self) -> str:
+        return self.entry.data.get(CONF_CATEGORY, DEFAULT_CATEGORY)
+
+    @property
+    def platform(self) -> str | None:
+        return self.entry.data.get(CONF_PLATFORM)
+
+    @property
+    def scope(self) -> str:
+        return self.entry.data.get(CONF_SCOPE, DEFAULT_SCOPE)
 
     @property
     def auto_hide_hours(self) -> int:
@@ -125,11 +144,44 @@ class WatcherRuntime:
         if not key:
             self._clear_current_title()
             return
-        if self.entry.data[CONF_WATCHER_TYPE] == "media":
-            key = self._resolve_media_duplicate_key(key)
-        await self.store.async_seen(key)
+        watcher_type = self.entry.data[CONF_WATCHER_TYPE]
+        if watcher_type == "media":
+            key = await self._resolve_media_duplicate_key(key)
+        cover_url = self._native_cover_url(state)
+        await self.store.async_seen(
+            key,
+            platform=self.platform,
+            artist=self._resolve_artist(state, watcher_type),
+            title=self._title_from_attributes(state, watcher_type) or clean_value(state.state),
+            album=clean_value(state.attributes.get("media_album_name")),
+            app_name=clean_value(state.attributes.get("app_name")),
+            cover_url=cover_url,
+            cover_source="native" if cover_url else None,
+        )
         self.current_key = key
         self.refresh_current_enum()
+        self.notify_listeners()
+
+    @staticmethod
+    def _native_cover_url(state: State) -> str | None:
+        """Absolute artwork URL the source already exposes, or None.
+
+        Only canonical external URLs count — HA proxy paths (``/api/...``) and
+        ``entity_picture_local`` are skipped, mirroring MAW's prio-1 logic.
+        """
+        for attr in ("media_image_url", "entity_picture"):
+            value = state.attributes.get(attr)
+            if isinstance(value, str) and value.startswith(("http://", "https://")):
+                return value
+        return None
+
+    async def async_handle_remote_change(self, key: str) -> None:
+        """Apply a row change made by the *other* HA instance (LISTEN/NOTIFY)."""
+        changed = await self.store.async_refresh_key(key)
+        if not changed:
+            return
+        if key == self.current_key:
+            self.refresh_current_enum()
         self.notify_listeners()
 
     def _clear_current_title(self) -> None:
@@ -202,7 +254,7 @@ class WatcherRuntime:
             return max(values, key=media_title_score)
         return values[0]
 
-    def _resolve_media_duplicate_key(self, key: str) -> str:
+    async def _resolve_media_duplicate_key(self, key: str) -> str:
         duplicate_keys = [
             existing_key
             for existing_key in self.store.entries
@@ -212,7 +264,7 @@ class WatcherRuntime:
             return key
         best_key = max([key, *duplicate_keys], key=media_key_score)
         if best_key == key:
-            self.store.merge_keys_in_memory(best_key, duplicate_keys)
+            await self.store.async_merge_keys(best_key, duplicate_keys)
         return best_key
 
     def as_panel_dict(self) -> dict[str, Any]:

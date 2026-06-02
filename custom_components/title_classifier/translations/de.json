@@ -1,14 +1,27 @@
 {
   "config": {
     "step": {
-      "user": {
+      "module_step": {
         "title": "Title-Classifier-Watcher erstellen",
-        "description": "Lege fest, welche Home-Assistant-Entität beobachtet wird und welche Art von Wert daraus klassifiziert werden soll.",
+        "description": "Lege fest, welche Home-Assistant-Entität beobachtet wird und welche Kategorie daraus klassifiziert werden soll.",
         "data": {
           "name": "Name des Watchers",
           "source_entity": "Welche Entität soll beobachtet werden?",
-          "watcher_type": "Was wird erkannt?",
+          "category": "Kategorie",
+          "platform": "Plattform (optional, z. B. ps5, pc, switch)",
+          "scope": "Scope (gleicher Wert auf beiden Instanzen = geteilt)",
           "retention_days": "Wie lange sollen alte Einträge behalten werden?"
+        }
+      },
+      "db": {
+        "title": "Medien-Katalog-Datenbank",
+        "description": "Verbindung zur gemeinsamen Postgres-Datenbank (LXC 108). Wird nur beim ersten Watcher abgefragt — weitere übernehmen sie automatisch.",
+        "data": {
+          "db_host": "Host",
+          "db_port": "Port",
+          "db_name": "Datenbank",
+          "db_user": "Benutzer",
+          "db_password": "Passwort"
         }
       },
       "artist": {
@@ -17,7 +30,24 @@
         "data": {
           "artist_attribute": "Künstler-/Sender-Attribut"
         }
+      },
+      "reconfigure": {
+        "title": "Watcher neu konfigurieren",
+        "description": "Datenbank-Zugang und Identität dieses Watchers anpassen. Die entry_id und die lokalen .storage-Daten bleiben erhalten.",
+        "data": {
+          "category": "Kategorie",
+          "platform": "Plattform (optional)",
+          "scope": "Scope (gleicher Wert auf beiden Instanzen = geteilt)",
+          "db_host": "Host",
+          "db_port": "Port",
+          "db_name": "Datenbank",
+          "db_user": "Benutzer",
+          "db_password": "Passwort"
+        }
       }
+    },
+    "abort": {
+      "reconfigure_successful": "Watcher wurde aktualisiert."
     }
   },
   "options": {

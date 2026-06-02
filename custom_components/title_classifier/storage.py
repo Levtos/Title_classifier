@@ -31,6 +31,15 @@ class MapperEntry:
     last_seen: str = field(default_factory=utcnow_iso)
     seen_count: int = 0
     hidden_at: str | None = None
+    # Shared media-catalog attributes (Postgres path / MAW symbiosis).
+    # Unused by the legacy JSON store, which leaves them at None.
+    platform: str | None = None
+    artist: str | None = None
+    title: str | None = None
+    album: str | None = None
+    app_name: str | None = None
+    cover_url: str | None = None
+    cover_source: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "MapperEntry":

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from homeassistant.components.button import ButtonEntity
 from homeassistant.components.number import NumberEntity, NumberMode
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
@@ -38,6 +39,8 @@ async def async_get_entities(
         ]
     if platform == Platform.NUMBER:
         return [TitleClassifierCurrentTitleEnumNumber(runtime)]
+    if platform == Platform.BUTTON:
+        return [TitleClassifierImportButton(runtime)]
     return []
 
 
@@ -146,6 +149,26 @@ class TitleClassifierCatalogSensor(_BaseSensor):
             "mapped_count": mapped,
             "unmapped_count": total - mapped,
         }
+
+
+class TitleClassifierImportButton(ButtonEntity):
+    """One-shot Apply button: import this watcher's legacy .storage into Postgres."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Import local data"
+    _attr_icon = "mdi:database-import"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, runtime: WatcherRuntime) -> None:
+        self._runtime = runtime
+        self._attr_unique_id = unique_id(MODULE_ID, runtime.entry.entry_id, "import_local")
+        self.entity_id = f"button.title_classifier_{_slug(runtime)}_import_local"
+        self._attr_device_info = _device_info(runtime)
+
+    async def async_press(self) -> None:
+        from .migration import async_import_local_storage
+
+        await async_import_local_storage(self.hass, self._runtime)
 
 
 class TitleClassifierCurrentTitleEnumNumber(NumberEntity):

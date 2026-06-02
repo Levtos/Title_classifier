@@ -1,14 +1,27 @@
 {
   "config": {
     "step": {
-      "user": {
+      "module_step": {
         "title": "Create Title Classifier watcher",
-        "description": "Choose which Home Assistant entity should be watched and what kind of value should be classified.",
+        "description": "Choose which Home Assistant entity should be watched and which category should be classified from it.",
         "data": {
           "name": "Watcher name",
           "source_entity": "Which entity should be watched?",
-          "watcher_type": "What should be detected?",
+          "category": "Category",
+          "platform": "Platform (optional, e.g. ps5, pc, switch)",
+          "scope": "Scope (same value on both instances = shared)",
           "retention_days": "How long should old entries be kept?"
+        }
+      },
+      "db": {
+        "title": "Media catalog database",
+        "description": "Connection to the shared Postgres database (LXC 108). Asked only for the first watcher — later ones inherit it automatically.",
+        "data": {
+          "db_host": "Host",
+          "db_port": "Port",
+          "db_name": "Database",
+          "db_user": "User",
+          "db_password": "Password"
         }
       },
       "artist": {
@@ -17,7 +30,24 @@
         "data": {
           "artist_attribute": "Artist / station attribute"
         }
+      },
+      "reconfigure": {
+        "title": "Reconfigure watcher",
+        "description": "Update this watcher's database connection and identity. The entry_id and local .storage data are kept.",
+        "data": {
+          "category": "Category",
+          "platform": "Platform (optional)",
+          "scope": "Scope (same value on both instances = shared)",
+          "db_host": "Host",
+          "db_port": "Port",
+          "db_name": "Database",
+          "db_user": "User",
+          "db_password": "Password"
+        }
       }
+    },
+    "abort": {
+      "reconfigure_successful": "Watcher updated."
     }
   },
   "options": {
