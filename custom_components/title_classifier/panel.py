@@ -15,9 +15,10 @@ from pathlib import Path
 from homeassistant.components import frontend
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.core import HomeAssistant
+from homeassistant.loader import async_get_integration
 
 from .const import panel_url_path
-from .const import MODULE_ID, PANEL_ICON, PANEL_TITLE
+from .const import DOMAIN, MODULE_ID, PANEL_ICON, PANEL_TITLE
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -65,6 +66,16 @@ async def async_register_panel(hass: HomeAssistant) -> None:
                 "title_classifier panel already absent during cleanup"
             )
 
+    # Cache-bust the panel JS with the integration version. Custom-panel ES
+    # modules are cached aggressively by the browser under their URL; without a
+    # changing query param an update keeps running the old frontend (e.g. a perf
+    # fix never takes effect even after a hard refresh).
+    try:
+        integration = await async_get_integration(hass, DOMAIN)
+        version = str(integration.version or "dev")
+    except Exception:  # noqa: BLE001 — fall back to a static tag
+        version = "dev"
+
     frontend.async_register_built_in_panel(
         hass,
         component_name="custom",
@@ -77,7 +88,7 @@ async def async_register_panel(hass: HomeAssistant) -> None:
                 "name": "title-classifier-panel",
                 "embed_iframe": False,
                 "trust_external": False,
-                "js_url": f"{_STATIC_PREFIX}/title-classifier-panel.js",
+                "js_url": f"{_STATIC_PREFIX}/title-classifier-panel.js?v={version}",
             }
         },
     )
