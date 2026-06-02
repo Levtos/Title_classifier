@@ -39,6 +39,7 @@ class TitleClassifierPanel extends HTMLElement {
     this._exportText = "";
     this._importText = "";
     this._savingTokens = new Set();
+    this._draftEnums = new Map();
 
     this._loadState();
   }
@@ -199,13 +200,33 @@ class TitleClassifierPanel extends HTMLElement {
     return this._allEntries.find(entry => entry.entry_id === entryId && entry.key === key);
   }
 
+  _draftEnum(entry) {
+    const token = this._entryToken(entry);
+    return this._draftEnums.has(token) ? this._draftEnums.get(token) : entry.enum;
+  }
+
+  _setDraftEnum(entry, value) {
+    this._draftEnums.set(this._entryToken(entry), value);
+    this._replaceDrawer();
+  }
+
+  async _applyDraftEnum(entry) {
+    const token = this._entryToken(entry);
+    if (await this._setEnum({ ...entry }, this._draftEnum(entry), token)) {
+      this._draftEnums.delete(token);
+      this._replaceDrawer();
+    }
+  }
+
   async _setEnum(entry, value, token) {
     const previous = entry.enum;
     // Optimistic, in-place pill update — NO full re-render (rebuilding ~1000
     // rows took seconds). The local state is authoritative; we don't reload.
+    this._savingTokens.add(token);
     entry.enum = value;
     this._syncEntry(entry);
     this._updatePills(token, value);
+    this._replaceDrawer();
     try {
       await this._ws({
         type: "title_classifier/update_entry",
@@ -214,12 +235,27 @@ class TitleClassifierPanel extends HTMLElement {
         enum_value: value,
       });
       this._toast(`Enum ${value} fuer "${entry.key}" gespeichert`, "success");
+      return true;
     } catch (err) {
       entry.enum = previous;
       this._syncEntry(entry);
       this._updatePills(token, previous);
       this._toast(`Speichern fehlgeschlagen: ${err.message}`, "error");
+      return false;
+    } finally {
+      this._savingTokens.delete(token);
+      this._replaceDrawer();
     }
+  }
+
+  _replaceDrawer() {
+    const drawer = this.shadowRoot?.querySelector(".drawer");
+    if (!drawer) {
+      this._render();
+      return;
+    }
+    drawer.outerHTML = this._drawerHtml();
+    this._wireDrawer();
   }
 
   _updatePills(token, value) {
@@ -256,8 +292,7 @@ class TitleClassifierPanel extends HTMLElement {
         }
       });
     }
-    drawer.outerHTML = this._drawerHtml();
-    this._wireDrawer();
+    this._replaceDrawer();
   }
 
   _wireDrawer() {
@@ -272,8 +307,12 @@ class TitleClassifierPanel extends HTMLElement {
       ev.preventDefault();
       ev.stopPropagation();
       const entry = this._entryByToken(btn.dataset.token);
-      if (entry) this._setEnum({ ...entry }, Number(btn.dataset.enum), btn.dataset.token);
+      if (entry) this._setDraftEnum({ ...entry }, Number(btn.dataset.enum));
     }));
+    root.querySelector("#apply-enum")?.addEventListener("click", ev => {
+      const entry = this._entryByToken(ev.currentTarget.dataset.token);
+      if (entry) this._applyDraftEnum(entry);
+    });
   }
 
   async _deleteEntry(entry) {
@@ -517,6 +556,11 @@ textarea { width: 100%; min-height: 220px; padding: 12px; resize: vertical; font
   background: rgba(98, 114, 164, .22); color: var(--tc-text); font-size: .78rem;
 }
 .kind-pill { color: var(--tc-cyan); }
+.enum-current {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 28px;
+  border-radius: 999px; border: 1px solid var(--tc-border);
+  background: rgba(255,255,255,.04); padding: 0 10px; font-weight: 700;
+}
 .enum-pills { display: flex; gap: 6px; flex-wrap: wrap; }
 .enum-pill {
   width: 32px; height: 32px; border-radius: 7px; border: 1px solid var(--tc-border);
@@ -525,6 +569,10 @@ textarea { width: 100%; min-height: 220px; padding: 12px; resize: vertical; font
 .enum-pill.active { color: #fff; border-color: var(--pill); background: color-mix(in srgb, var(--pill) 45%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--pill) 35%, transparent); }
 .enum-pill.saving { cursor: progress; opacity: .7; }
 .enum-pill:disabled { cursor: progress; }
+.enum-apply {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  margin-top: 12px;
+}
 .drawer { padding: 16px; position: sticky; top: 22px; align-self: start; }
 .drawer-head { display: flex; justify-content: space-between; gap: 12px; align-items: start; margin-bottom: 16px; }
 .drawer h2 { margin: 0; font-size: 1.05rem; }
@@ -717,27 +765,39 @@ textarea { width: 100%; min-height: 220px; padding: 12px; resize: vertical; font
         <div class="meta">${this._typeLabel(entry.watcher_type)}${entry.hidden ? " · ausgeblendet" : ""}</div>
       </td>
       <td><span class="source-pill">${this._esc(entry.source_name)}</span></td>
-      <td>${this._enumPills(entry)}</td>
+      <td>${this._enumSummary(entry)}</td>
       <td>${entry.seen_count ?? 0}</td>
       <td>${this._rel(entry.last_seen)}</td>
     </tr>`;
   }
 
+  _enumSummary(entry) {
+    return `<span class="enum-current" title="Zum Aendern Zeile oeffnen">
+      <span class="enum-pill active" style="--pill: var(--enum-${entry.enum})">${entry.enum}</span>
+      Enum ${entry.enum}
+    </span>`;
+  }
+
   _enumPills(entry) {
     const token = this._entryToken(entry);
     const saving = this._savingTokens.has(token);
+    const draft = this._draftEnum(entry);
     return `<div class="enum-pills">${ENUMS.map(value => `
-      <button type="button" class="enum-pill ${entry.enum === value ? "active" : ""} ${saving ? "saving" : ""}"
+      <button type="button" class="enum-pill ${draft === value ? "active" : ""} ${saving ? "saving" : ""}"
               style="--pill: var(--enum-${value})"
               data-enum="${value}" data-token="${this._esc(token)}"
               ${saving ? "disabled" : ""}
-              title="${value === 0 ? "Enum 0: Unklassifiziert" : `Enum ${value} zuordnen`}">${saving && entry.enum === value ? "..." : value}</button>
+              title="${value === 0 ? "Enum 0: Unklassifiziert" : `Enum ${value} vormerken`}">${saving && draft === value ? "..." : value}</button>
     `).join("")}</div>`;
   }
 
   _drawerHtml() {
     const entry = this._selected || this._currentEntry();
     if (!entry) return `<aside class="card drawer"><div class="empty">Eintrag auswaehlen, um Details zu sehen.</div></aside>`;
+    const token = this._entryToken(entry);
+    const draft = this._draftEnum(entry);
+    const changed = draft !== entry.enum;
+    const saving = this._savingTokens.has(token);
     return `<aside class="card drawer">
       <div class="drawer-head">
         <div><h2>${this._esc(entry.key)}</h2><div class="meta">${this._esc(entry.source_name)} · ${this._typeLabel(entry.watcher_type)}</div></div>
@@ -746,6 +806,7 @@ textarea { width: 100%; min-height: 220px; padding: 12px; resize: vertical; font
       <div class="cover">${this._kindIcon(entry.watcher_type)}</div>
       <div class="details">
         ${this._detail("Enum", entry.enum)}
+        ${changed ? this._detail("Vorgemerkt", draft) : ""}
         ${this._detail("Quelle", entry.source_name)}
         ${this._detail("Ersterkannt", this._date(entry.first_seen))}
         ${this._detail("Zuletzt gesehen", this._date(entry.last_seen))}
@@ -753,6 +814,12 @@ textarea { width: 100%; min-height: 220px; padding: 12px; resize: vertical; font
         ${this._detail("Status", entry.hidden ? "Ausgeblendet" : (entry.is_current ? "Aktuell" : "Normal"))}
       </div>
       <div>${this._enumPills(entry)}</div>
+      <div class="enum-apply">
+        <span class="meta">${changed ? `Enum ${draft} ist vorgemerkt` : "Enum auswaehlen und Apply klicken"}</span>
+        <button class="btn primary" id="apply-enum" data-token="${this._esc(token)}" ${(!changed || saving) ? "disabled" : ""}>
+          ${saving ? "Speichert..." : "Apply"}
+        </button>
+      </div>
       <div class="toolbar" style="padding-left:0;padding-right:0;border-bottom:0">
         <button class="btn danger" id="delete-entry" data-eid="${this._esc(entry.entry_id)}" data-key="${this._esc(entry.key)}">Loeschen</button>
       </div>
@@ -806,12 +873,6 @@ textarea { width: 100%; min-height: 220px; padding: 12px; resize: vertical; font
       const found = this._allEntries.find(e => e.entry_id === row.dataset.eid && e.key === row.dataset.key) || null;
       this._selectEntry(found);
     }));
-    root.querySelectorAll(".enum-pill").forEach(btn => btn.addEventListener("click", ev => {
-      ev.preventDefault();
-      ev.stopPropagation();
-      const entry = this._entryByToken(btn.dataset.token);
-      if (entry) this._setEnum({ ...entry }, Number(btn.dataset.enum), btn.dataset.token);
-    }));
     root.querySelector("#close-detail")?.addEventListener("click", () => this._selectEntry(null));
     root.querySelector("#delete-entry")?.addEventListener("click", btn => {
       const target = btn.currentTarget;
@@ -847,7 +908,7 @@ textarea { width: 100%; min-height: 220px; padding: 12px; resize: vertical; font
   }
 
   _manifestVersion() {
-    return "1.1.1";
+    return "2.1.6";
   }
 
   _typeLabel(type) {
