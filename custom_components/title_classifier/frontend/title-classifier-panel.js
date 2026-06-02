@@ -201,10 +201,11 @@ class TitleClassifierPanel extends HTMLElement {
 
   async _setEnum(entry, value, token) {
     const previous = entry.enum;
-    this._savingTokens.add(token);
+    // Optimistic, in-place pill update — NO full re-render (rebuilding ~1000
+    // rows took seconds). The local state is authoritative; we don't reload.
     entry.enum = value;
     this._syncEntry(entry);
-    this._render();
+    this._updatePills(token, value);
     try {
       await this._ws({
         type: "title_classifier/update_entry",
@@ -212,17 +213,21 @@ class TitleClassifierPanel extends HTMLElement {
         key: entry.key,
         enum_value: value,
       });
-      await this._load({ quiet: true });
       this._toast(`Enum ${value} fuer "${entry.key}" gespeichert`, "success");
     } catch (err) {
       entry.enum = previous;
       this._syncEntry(entry);
+      this._updatePills(token, previous);
       this._toast(`Speichern fehlgeschlagen: ${err.message}`, "error");
-    } finally {
-      this._savingTokens.delete(token);
-      this._applyFilters();
-      this._render();
     }
+  }
+
+  _updatePills(token, value) {
+    // Toggle the active pill for this entry wherever it appears (catalog row
+    // and the detail drawer share the same data-token).
+    this.shadowRoot
+      .querySelectorAll(`.enum-pill[data-token="${token}"]`)
+      .forEach(btn => btn.classList.toggle("active", Number(btn.dataset.enum) === value));
   }
 
   _syncEntry(entry) {
@@ -231,6 +236,44 @@ class TitleClassifierPanel extends HTMLElement {
     if (this._selected && this._sameEntry(this._selected, entry)) {
       this._selected = { ...this._selected, ...entry };
     }
+  }
+
+  _selectEntry(entry) {
+    // Open/close the detail drawer WITHOUT rebuilding the whole catalog table
+    // (that full re-render of ~1000 rows was the multi-second freeze).
+    this._selected = entry;
+    const root = this.shadowRoot;
+    const drawer = root.querySelector(".drawer");
+    if (!drawer) {
+      this._render();
+      return;
+    }
+    root.querySelectorAll(".row.selected").forEach(r => r.classList.remove("selected"));
+    if (entry) {
+      root.querySelectorAll(".row").forEach(r => {
+        if (r.dataset.eid === entry.entry_id && r.dataset.key === entry.key) {
+          r.classList.add("selected");
+        }
+      });
+    }
+    drawer.outerHTML = this._drawerHtml();
+    this._wireDrawer();
+  }
+
+  _wireDrawer() {
+    const root = this.shadowRoot;
+    root.querySelector("#close-detail")?.addEventListener("click", () => this._selectEntry(null));
+    root.querySelector("#delete-entry")?.addEventListener("click", ev => {
+      const target = ev.currentTarget;
+      const entry = this._allEntries.find(e => e.entry_id === target.dataset.eid && e.key === target.dataset.key);
+      if (entry) this._deleteEntry(entry);
+    });
+    root.querySelectorAll(".drawer .enum-pill").forEach(btn => btn.addEventListener("click", ev => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const entry = this._entryByToken(btn.dataset.token);
+      if (entry) this._setEnum({ ...entry }, Number(btn.dataset.enum), btn.dataset.token);
+    }));
   }
 
   async _deleteEntry(entry) {
@@ -658,7 +701,7 @@ textarea { width: 100%; min-height: 220px; padding: 12px; resize: vertical; font
       <thead><tr>
         <th data-sort="key">Titel</th>
         <th data-sort="source">Quelle</th>
-        <th data-sort="enum">Kategorie</th>
+        <th data-sort="enum">Enum</th>
         <th data-sort="seen_count">Sichtungen</th>
         <th data-sort="last_seen">Zuletzt</th>
       </tr></thead>
@@ -760,8 +803,8 @@ textarea { width: 100%; min-height: 220px; padding: 12px; resize: vertical; font
     root.querySelectorAll("[data-sort]").forEach(th => th.addEventListener("click", () => this._toggleSort(th.dataset.sort)));
     root.querySelectorAll(".row").forEach(row => row.addEventListener("click", ev => {
       if (ev.target.closest(".enum-pill")) return;
-      this._selected = this._allEntries.find(e => e.entry_id === row.dataset.eid && e.key === row.dataset.key) || null;
-      this._render();
+      const found = this._allEntries.find(e => e.entry_id === row.dataset.eid && e.key === row.dataset.key) || null;
+      this._selectEntry(found);
     }));
     root.querySelectorAll(".enum-pill").forEach(btn => btn.addEventListener("click", ev => {
       ev.preventDefault();
@@ -769,7 +812,7 @@ textarea { width: 100%; min-height: 220px; padding: 12px; resize: vertical; font
       const entry = this._entryByToken(btn.dataset.token);
       if (entry) this._setEnum({ ...entry }, Number(btn.dataset.enum), btn.dataset.token);
     }));
-    root.querySelector("#close-detail")?.addEventListener("click", () => { this._selected = null; this._render(); });
+    root.querySelector("#close-detail")?.addEventListener("click", () => this._selectEntry(null));
     root.querySelector("#delete-entry")?.addEventListener("click", btn => {
       const target = btn.currentTarget;
       const entry = this._allEntries.find(e => e.entry_id === target.dataset.eid && e.key === target.dataset.key);

@@ -88,7 +88,10 @@ def build_dsn(config: dict[str, Any]) -> str:
     name = config.get(CONF_DB_NAME, DEFAULT_DB_NAME)
     user = config[CONF_DB_USER]
     password = config.get(CONF_DB_PASSWORD, "")
-    return f"postgresql://{user}:{password}@{host}:{port}/{name}"
+    # sslmode=disable: trusted LAN + scram password auth. Also avoids asyncpg's
+    # blocking ssl.load_cert_chain() call inside the event loop (it otherwise
+    # probes ~/.postgresql/postgresql.crt on every connect).
+    return f"postgresql://{user}:{password}@{host}:{port}/{name}?sslmode=disable"
 
 
 def _pool_lock(hass: HomeAssistant) -> asyncio.Lock:
