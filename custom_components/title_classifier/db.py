@@ -103,7 +103,18 @@ async def async_get_pool(hass: HomeAssistant, dsn: str) -> Any:
     slot = pools.get(dsn)
     if slot is None:
         _LOGGER.debug("Creating asyncpg pool for media catalog")
-        pool = await asyncpg.create_pool(dsn=dsn, min_size=1, max_size=5)
+        pool = await asyncpg.create_pool(
+            dsn=dsn,
+            min_size=1,
+            max_size=5,
+            # Recycle idle connections before a stateful firewall / idle timeout
+            # can silently kill them — otherwise the next query hangs on a dead
+            # socket for minutes (e.g. a panel enum-set taking ~2 min).
+            max_inactive_connection_lifetime=60,
+            # Hard upper bound per statement so a stale connection fails fast
+            # instead of hanging; our queries are sub-second.
+            command_timeout=30,
+        )
         slot = {"pool": pool, "refs": 0}
         pools[dsn] = slot
         await async_apply_schema(hass, pool)

@@ -11,6 +11,7 @@ LISTEN/NOTIFY is wired (step 5) — on every remote change.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta
 import logging
 from typing import Any
@@ -93,6 +94,17 @@ class PostgresMapperStore:
     @property
     def entries(self) -> dict[str, MapperEntry]:
         return self._entries
+
+    async def _fetchrow(self, query: str, *args: Any) -> Any:
+        """fetchrow with one retry — a stale pooled connection fails fast (via
+        command_timeout) and is discarded, so the retry runs on a fresh one."""
+        try:
+            return await self._pool.fetchrow(query, *args)
+        except asyncio.CancelledError:
+            raise
+        except Exception as err:  # noqa: BLE001 — broken conn / timeout: retry once
+            _LOGGER.debug("Catalog query failed (%s); retrying once", err)
+            return await self._pool.fetchrow(query, *args)
 
     async def async_load(self) -> None:
         rows = await self._pool.fetch(
@@ -192,7 +204,7 @@ class PostgresMapperStore:
         return entry
 
     async def async_set_enum(self, key: str, enum: int) -> MapperEntry:
-        row = await self._pool.fetchrow(
+        row = await self._fetchrow(
             f"""
             INSERT INTO catalog_entry
                 (scope, category, key, enum, first_seen, last_seen, seen_count, updated_by)
@@ -219,7 +231,7 @@ class PostgresMapperStore:
         Touches only the cover columns, so it never clobbers a concurrent
         enum/seen write from Title Classifier.
         """
-        row = await self._pool.fetchrow(
+        row = await self._fetchrow(
             f"""
             UPDATE catalog_entry
                SET cover_url = $4, cover_source = $5, updated_by = $6, updated_at = now()
