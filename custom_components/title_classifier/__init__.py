@@ -16,15 +16,29 @@ from homeassistant.helpers.typing import ConfigType
 from .const import DATA_ENTRIES, DATA_SERVICES_REGISTERED, DATA_WEBSOCKETS_REGISTERED, DOMAIN
 from .const import (
     CONF_CATEGORY,
+    CONF_ENTRY_TYPE,
+    CONF_HUB_ENTRY_ID,
     CONF_PLATFORM,
     CONF_SCOPE,
     CONF_WATCHER_TYPE,
     DEFAULT_SCOPE,
+    ENTRY_TYPE_HUB,
+    ENTRY_TYPE_WATCHER,
     MODULE_ID,
     WATCHER_TYPE_TO_CATEGORY,
     service_name,
 )
-from .db import CONF_DB_HOST, async_get_pool, async_release_pool, build_dsn
+from .db import (
+    CONF_DB_HOST,
+    CONF_DB_NAME,
+    CONF_DB_PASSWORD,
+    CONF_DB_PORT,
+    CONF_DB_USER,
+    async_get_pool,
+    async_release_pool,
+    build_dsn,
+    resolve_db_data,
+)
 from .notify import async_ensure_listener, async_release_listener
 from .entities import async_get_entities  # re-export
 from .flow import ConfigFlowHelper, OptionsFlowHelper  # re-export
@@ -74,19 +88,53 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             DATA_WEBSOCKETS_REGISTERED: False,
         },
     )
+    if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_HUB:
+        return await _async_setup_hub(hass, entry)
+    return await _async_setup_watcher(hass, entry)
+
+
+async def _async_setup_hub(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """The DB hub owns the shared pool + listener; it has no entities."""
+    db = resolve_db_data(hass, entry)
+    if not db or not db.get(CONF_DB_HOST):
+        raise ConfigEntryError("DB-Hub ohne Verbindungsdaten — bitte neu konfigurieren.")
+
+    dsn = build_dsn(db)
+    inst = await instance_id.async_get(hass)
+    try:
+        await async_get_pool(hass, dsn)
+        await async_ensure_listener(hass, dsn, inst)
+    except Exception as err:  # asyncpg connection/OS errors → retry later
+        await async_release_pool(hass, dsn)
+        raise ConfigEntryNotReady(f"Medien-Katalog-DB nicht erreichbar: {err}") from err
+
+    hass.data[DOMAIN][DATA_ENTRIES][entry.entry_id] = {
+        "module_id": MODULE_ID,
+        "entry_type": ENTRY_TYPE_HUB,
+        "dsn": dsn,
+        "status": "ready",
+    }
+    # Attach all watchers to this hub (strip any embedded legacy DB), so the
+    # connection lives in one place from now on.
+    _attach_watchers_to_hub(hass, entry)
+    return True
+
+
+async def _async_setup_watcher(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN][DATA_ENTRIES][entry.entry_id] = {
         "module_id": MODULE_ID,
         "status": "loading",
     }
 
-    if not entry.data.get(CONF_DB_HOST):
+    db = resolve_db_data(hass, entry)
+    if db is None:
         hass.data[DOMAIN][DATA_ENTRIES].pop(entry.entry_id, None)
         raise ConfigEntryError(
-            "Keine Postgres-Verbindung konfiguriert. Watcher entfernen und neu "
-            "hinzufügen, um die Datenbank (LXC 108) zu hinterlegen."
+            "Keine Datenbank-Verbindung. Lege zuerst den „Title Classifier DB\"-"
+            "Hub an (LXC 108) oder konfiguriere den Watcher neu."
         )
 
-    dsn = build_dsn(entry.data)
+    dsn = build_dsn(db)
     inst = await instance_id.async_get(hass)
     try:
         pool = await async_get_pool(hass, dsn)
@@ -115,6 +163,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     bucket = hass.data[DOMAIN][DATA_ENTRIES].setdefault(entry.entry_id, {})
     bucket["module_id"] = MODULE_ID
+    bucket["entry_type"] = ENTRY_TYPE_WATCHER
     bucket["runtime"] = runtime
     bucket["dsn"] = dsn
     bucket["status"] = "ready"
@@ -125,8 +174,32 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
+def _attach_watchers_to_hub(hass: HomeAssistant, hub: ConfigEntry) -> None:
+    """Point every watcher at the hub and strip any embedded legacy DB fields.
+
+    entry_id is preserved → no entity churn. Covers both v2.0.x watchers (DB in
+    their own data) and not-yet-configured ones (no DB at all). Reloads each so
+    it re-resolves its connection from the hub.
+    """
+    db_keys = (CONF_DB_HOST, CONF_DB_PORT, CONF_DB_NAME, CONF_DB_USER, CONF_DB_PASSWORD)
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        d = entry.data
+        if d.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_HUB:
+            continue
+        new = {k: v for k, v in d.items() if k not in db_keys}
+        new[CONF_ENTRY_TYPE] = ENTRY_TYPE_WATCHER
+        new[CONF_HUB_ENTRY_ID] = hub.entry_id
+        if new != dict(d):
+            hass.config_entries.async_update_entry(entry, data=new)
+        hass.async_create_task(hass.config_entries.async_reload(entry.entry_id))
+        _LOGGER.info("Attached watcher %s to hub %s", entry.entry_id, hub.entry_id)
+
+
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    is_hub = entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_HUB
+    unload_ok = True
+    if not is_hub:
+        unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     bucket = hass.data.get(DOMAIN, {}).get(DATA_ENTRIES, {}).pop(entry.entry_id, None)
     runtime = bucket.get("runtime") if bucket else None
     if runtime is not None:

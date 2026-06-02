@@ -14,8 +14,8 @@
         }
       },
       "db": {
-        "title": "Medien-Katalog-Datenbank",
-        "description": "Verbindung zur gemeinsamen Postgres-Datenbank (LXC 108). Wird nur beim ersten Watcher abgefragt — weitere übernehmen sie automatisch.",
+        "title": "Medien-Katalog-Datenbank (Hub)",
+        "description": "Einmalige Verbindung zur gemeinsamen Postgres-Datenbank (LXC 108). Wird als zentraler „Title Classifier DB\"-Eintrag gespeichert; alle Watcher nutzen sie. Änderungen später nur hier nötig.",
         "data": {
           "db_host": "Host",
           "db_port": "Port",
@@ -32,8 +32,8 @@
         }
       },
       "reconfigure": {
-        "title": "Watcher neu konfigurieren",
-        "description": "Datenbank-Zugang und Identität dieses Watchers anpassen. Die entry_id und die lokalen .storage-Daten bleiben erhalten.",
+        "title": "Neu konfigurieren",
+        "description": "Beim DB-Hub die Verbindung anpassen (gilt für alle Watcher), beim Watcher Kategorie/Plattform/Scope. entry_id und lokale .storage-Daten bleiben erhalten.",
         "data": {
           "category": "Kategorie",
           "platform": "Plattform (optional)",

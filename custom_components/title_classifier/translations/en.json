@@ -14,8 +14,8 @@
         }
       },
       "db": {
-        "title": "Media catalog database",
-        "description": "Connection to the shared Postgres database (LXC 108). Asked only for the first watcher — later ones inherit it automatically.",
+        "title": "Media catalog database (hub)",
+        "description": "One-time connection to the shared Postgres database (LXC 108). Stored as a central \"Title Classifier DB\" entry that all watchers use; later changes are made only here.",
         "data": {
           "db_host": "Host",
           "db_port": "Port",
@@ -32,8 +32,8 @@
         }
       },
       "reconfigure": {
-        "title": "Reconfigure watcher",
-        "description": "Update this watcher's database connection and identity. The entry_id and local .storage data are kept.",
+        "title": "Reconfigure",
+        "description": "For the DB hub, update the connection (applies to all watchers); for a watcher, its category/platform/scope. entry_id and local .storage data are kept.",
         "data": {
           "category": "Category",
           "platform": "Platform (optional)",

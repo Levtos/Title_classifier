@@ -27,6 +27,14 @@ CONF_CATEGORY = "category"
 CONF_PLATFORM = "platform"
 CONF_SCOPE = "scope"
 
+# v2.1 hub model: a dedicated "DB hub" entry holds the connection; watcher
+# entries reference it instead of carrying their own DB credentials.
+CONF_ENTRY_TYPE = "entry_type"
+ENTRY_TYPE_HUB = "hub"
+ENTRY_TYPE_WATCHER = "watcher"
+CONF_HUB_ENTRY_ID = "hub_entry_id"
+HUB_TITLE = "Title Classifier DB"
+
 WATCHER_TYPES = ("game", "media", "activity")
 DEFAULT_ARTIST_ATTRIBUTE = "media_artist"
 

@@ -11,9 +11,15 @@ import logging
 from pathlib import Path
 from typing import Any, Final
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from .const import DOMAIN
+from .const import (
+    CONF_ENTRY_TYPE,
+    CONF_HUB_ENTRY_ID,
+    DOMAIN,
+    ENTRY_TYPE_HUB,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -33,6 +39,41 @@ DATA_POOLS: Final = "db_pools"
 NOTIFY_CHANNEL: Final = "catalog_change"
 
 _SCHEMA_PATH: Final = Path(__file__).parent / "schema.sql"
+
+
+def hub_entries(hass: HomeAssistant) -> list[ConfigEntry]:
+    """All DB-hub config entries of this integration."""
+    return [
+        entry
+        for entry in hass.config_entries.async_entries(DOMAIN)
+        if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_HUB
+    ]
+
+
+def resolve_db_data(hass: HomeAssistant, entry: ConfigEntry) -> dict[str, Any] | None:
+    """Return the DB connection dict for *entry*.
+
+    - hub entry → its own data
+    - watcher with ``hub_entry_id`` → the referenced hub's data
+    - legacy v2.0.x watcher → its own embedded DB data
+    - otherwise None (not configured)
+    """
+    if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_HUB:
+        return dict(entry.data)
+    hub_id = entry.data.get(CONF_HUB_ENTRY_ID)
+    if hub_id:
+        hub = hass.config_entries.async_get_entry(hub_id)
+        if hub is not None and hub.data.get(CONF_DB_HOST):
+            return dict(hub.data)
+        return None
+    if entry.data.get(CONF_DB_HOST):
+        return dict(entry.data)
+    # No explicit reference and no embedded DB: fall back to the single hub
+    # (a watcher attaches to it explicitly once the hub finishes setting up).
+    hubs = hub_entries(hass)
+    if len(hubs) == 1:
+        return dict(hubs[0].data)
+    return None
 
 
 def build_dsn(config: dict[str, Any]) -> str:
