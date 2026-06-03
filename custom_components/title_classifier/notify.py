@@ -56,7 +56,7 @@ class CatalogListener:
     async def _connect(self) -> None:
         import asyncpg  # deferred: declared in manifest requirements
 
-        self._conn = await asyncpg.connect(dsn=self._dsn)
+        self._conn = await asyncpg.connect(dsn=self._dsn, ssl=False)
         self._conn.add_termination_listener(self._on_terminate)
         await self._conn.add_listener(NOTIFY_CHANNEL, self._on_notify)
         _LOGGER.debug("Listening on '%s'", NOTIFY_CHANNEL)

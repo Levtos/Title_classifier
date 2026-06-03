@@ -98,3 +98,24 @@ def test_normalise_user_key_strips_and_validates():
     # ServiceValidationError comes through our stubbed homeassistant.exceptions.
     with pytest.raises(R.ServiceValidationError):
         R.normalise_user_key("   ")
+
+
+def test_seen_write_throttle_skips_unchanged_recent_state():
+    runtime = R.WatcherRuntime.__new__(R.WatcherRuntime)
+    signature = ("pc", "Artist", "Title", None, None, None, None)
+    runtime._last_seen_key = "Artist - Title"
+    runtime._last_seen_signature = signature
+    runtime._last_seen_write_at = R.dt_util.utcnow()
+
+    assert runtime._should_skip_seen_write("Artist - Title", signature)
+
+
+def test_seen_write_throttle_allows_changed_title():
+    runtime = R.WatcherRuntime.__new__(R.WatcherRuntime)
+    runtime._last_seen_key = "Artist - Old"
+    runtime._last_seen_signature = ("pc", "Artist", "Old", None, None, None, None)
+    runtime._last_seen_write_at = R.dt_util.utcnow()
+
+    assert not runtime._should_skip_seen_write(
+        "Artist - New", ("pc", "Artist", "New", None, None, None, None)
+    )

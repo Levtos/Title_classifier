@@ -90,23 +90,49 @@ class PostgresMapperStore:
         self._category = category
         self._instance_id = instance_id
         self._entries: dict[str, MapperEntry] = {}
+        self._closed = False
 
     @property
     def entries(self) -> dict[str, MapperEntry]:
         return self._entries
 
+    def close(self) -> None:
+        """Mark this watcher store as unloaded.
+
+        HA can still deliver an already-scheduled state callback while an entry
+        reload is closing the shared pool. Keep the cached view usable, but stop
+        issuing new DB writes from this store.
+        """
+        self._closed = True
+
+    def _pool_is_closed(self) -> bool:
+        return self._closed or bool(
+            getattr(self._pool, "_closed", False)
+            or getattr(self._pool, "_closing", False)
+        )
+
+    @staticmethod
+    def _is_pool_closed_error(err: Exception) -> bool:
+        return "pool is closed" in str(err).lower()
+
     async def _fetchrow(self, query: str, *args: Any) -> Any:
         """fetchrow with one retry — a stale pooled connection fails fast (via
         command_timeout) and is discarded, so the retry runs on a fresh one."""
+        if self._pool_is_closed():
+            raise RuntimeError("catalog store is closed")
         try:
             return await self._pool.fetchrow(query, *args)
         except asyncio.CancelledError:
             raise
         except Exception as err:  # noqa: BLE001 — broken conn / timeout: retry once
+            if self._is_pool_closed_error(err) or self._pool_is_closed():
+                raise
             _LOGGER.debug("Catalog query failed (%s); retrying once", err)
             return await self._pool.fetchrow(query, *args)
 
     async def async_load(self) -> None:
+        if self._pool_is_closed():
+            return
         rows = await self._pool.fetch(
             f"SELECT {_COLUMNS} FROM catalog_entry WHERE scope = $1 AND category = $2",
             self._scope,
@@ -137,6 +163,10 @@ class PostgresMapperStore:
         previously resolved one); when it does not, the existing cover is kept
         so a MAW-resolved cover is never nulled out.
         """
+        if self._pool_is_closed():
+            return self._optimistic_seen(
+                key, platform, artist, title, album, app_name, cover_url, cover_source
+            )
         try:
             row = await self._pool.fetchrow(
                 f"""
@@ -166,7 +196,14 @@ class PostgresMapperStore:
                 app_name, cover_url, cover_source, self._instance_id,
             )
         except Exception as err:  # noqa: BLE001 — DB down: degrade to cache
-            _LOGGER.warning("Catalog seen-write failed for %r (cached): %s", key, err)
+            if self._is_pool_closed_error(err) or self._pool_is_closed():
+                _LOGGER.debug(
+                    "Catalog seen-write skipped for %r after unload (cached)", key
+                )
+            else:
+                _LOGGER.warning(
+                    "Catalog seen-write failed for %r (cached): %s", key, err
+                )
             return self._optimistic_seen(
                 key, platform, artist, title, album, app_name, cover_url, cover_source
             )

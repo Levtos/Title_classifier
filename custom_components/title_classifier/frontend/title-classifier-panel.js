@@ -902,7 +902,7 @@ textarea { width: 100%; min-height: 220px; padding: 12px; resize: vertical; font
   }
 
   _manifestVersion() {
-    return "2.1.7";
+    return "2.1.8";
   }
 
   _typeLabel(type) {
