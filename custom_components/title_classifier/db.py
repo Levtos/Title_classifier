@@ -11,6 +11,7 @@ import asyncio
 import logging
 from pathlib import Path
 from typing import Any, Final
+from urllib.parse import quote
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -88,10 +89,11 @@ def build_dsn(config: dict[str, Any]) -> str:
     name = config.get(CONF_DB_NAME, DEFAULT_DB_NAME)
     user = config[CONF_DB_USER]
     password = config.get(CONF_DB_PASSWORD, "")
-    # sslmode=disable: trusted LAN + scram password auth. Also avoids asyncpg's
-    # blocking ssl.load_cert_chain() call inside the event loop (it otherwise
-    # probes ~/.postgresql/postgresql.crt on every connect).
-    return f"postgresql://{user}:{password}@{host}:{port}/{name}?sslmode=disable"
+    return (
+        f"postgresql://{quote(str(user), safe='')}:"
+        f"{quote(str(password), safe='')}@{host}:{port}/"
+        f"{quote(str(name), safe='')}"
+    )
 
 
 def _pool_lock(hass: HomeAssistant) -> asyncio.Lock:
@@ -117,6 +119,7 @@ async def async_get_pool(hass: HomeAssistant, dsn: str) -> Any:
             _LOGGER.debug("Creating asyncpg pool for media catalog")
             pool = await asyncpg.create_pool(
                 dsn=dsn,
+                ssl=False,
                 min_size=1,
                 max_size=5,
                 # Recycle idle connections before a stateful firewall / idle

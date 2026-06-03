@@ -35,6 +35,8 @@ from .const import (
 )
 from .postgres_store import PostgresMapperStore
 
+_UNCHANGED_SEEN_WRITE_INTERVAL = timedelta(seconds=30)
+
 
 class WatcherRuntime:
     """Runtime-Zustand für einen Watcher-Config-Entry."""
@@ -49,6 +51,9 @@ class WatcherRuntime:
         self.current_enum: int | None = None
         self._remove_listener = None
         self._listeners: list[Callable[[], None]] = []
+        self._last_seen_key: str | None = None
+        self._last_seen_signature: tuple[str | None, ...] | None = None
+        self._last_seen_write_at: datetime | None = None
 
     @property
     def name(self) -> str:
@@ -106,6 +111,7 @@ class WatcherRuntime:
         if self._remove_listener is not None:
             self._remove_listener()
             self._remove_listener = None
+        self.store.close()
         self._listeners.clear()
 
     @callback
@@ -148,19 +154,51 @@ class WatcherRuntime:
         if watcher_type == "media":
             key = await self._resolve_media_duplicate_key(key)
         cover_url = self._native_cover_url(state)
-        await self.store.async_seen(
-            key,
-            platform=self.platform,
-            artist=self._resolve_artist(state, watcher_type),
-            title=self._title_from_attributes(state, watcher_type) or clean_value(state.state),
-            album=clean_value(state.attributes.get("media_album_name")),
-            app_name=clean_value(state.attributes.get("app_name")),
-            cover_url=cover_url,
-            cover_source="native" if cover_url else None,
+        artist = self._resolve_artist(state, watcher_type)
+        title = self._title_from_attributes(state, watcher_type) or clean_value(state.state)
+        album = clean_value(state.attributes.get("media_album_name"))
+        app_name = clean_value(state.attributes.get("app_name"))
+        cover_source = "native" if cover_url else None
+        signature = (
+            self.platform,
+            artist,
+            title,
+            album,
+            app_name,
+            cover_url,
+            cover_source,
         )
+        current_before = self.current_key
+        enum_before = self.current_enum
+        wrote_seen = False
+        if not self._should_skip_seen_write(key, signature):
+            await self.store.async_seen(
+                key,
+                platform=self.platform,
+                artist=artist,
+                title=title,
+                album=album,
+                app_name=app_name,
+                cover_url=cover_url,
+                cover_source=cover_source,
+            )
+            self._last_seen_key = key
+            self._last_seen_signature = signature
+            self._last_seen_write_at = dt_util.utcnow()
+            wrote_seen = True
         self.current_key = key
         self.refresh_current_enum()
-        self.notify_listeners()
+        if wrote_seen or current_before != self.current_key or enum_before != self.current_enum:
+            self.notify_listeners()
+
+    def _should_skip_seen_write(
+        self, key: str, signature: tuple[str | None, ...]
+    ) -> bool:
+        if key != self._last_seen_key or signature != self._last_seen_signature:
+            return False
+        if self._last_seen_write_at is None:
+            return False
+        return dt_util.utcnow() - self._last_seen_write_at < _UNCHANGED_SEEN_WRITE_INTERVAL
 
     @staticmethod
     def _native_cover_url(state: State) -> str | None:
