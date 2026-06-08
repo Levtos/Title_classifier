@@ -17,6 +17,10 @@ DATA_WEBSOCKETS_REGISTERED: Final[str] = "websockets_registered"
 CONF_MODULE_ID: Final[str] = "_module_id"
 
 CONF_SOURCE_ENTITY = "source_entity"
+# Optionales Online-/Verfügbarkeits-Entity (z.B. Plug-Power-Active-Atomic aus
+# core_devices). Off/unavailable → Watcher gilt als offline → Enum-Fallback statt
+# stale Titel. Zuverlässiger als ein PSN-Online-Status (unsichtbar ≠ aus).
+CONF_ONLINE_ENTITY = "online_entity"
 CONF_ARTIST_ATTRIBUTE = "artist_attribute"
 CONF_WATCHER_TYPE = "watcher_type"
 CONF_RETENTION_DAYS = "retention_days"

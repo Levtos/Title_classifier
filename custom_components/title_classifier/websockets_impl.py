@@ -107,6 +107,7 @@ async def ws_get_sources(hass: HomeAssistant, connection, msg: dict[str, Any]) -
             "name": runtime.name,
             "watcher_type": runtime.entry.data["watcher_type"],
             "source_entity": runtime.source_entity,
+            "online": runtime.online,
             "entry_count": total,
             "unmapped_count": unmapped,
             "hidden_count": hidden,

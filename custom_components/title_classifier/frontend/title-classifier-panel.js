@@ -683,7 +683,7 @@ textarea { width: 100%; min-height: 220px; padding: 12px; resize: vertical; font
           <strong>${this._esc(current?.key || source.source_entity || "Kein aktueller Wert")}</strong>
           <div class="meta">Enum ${current?.enum ?? 0} · ${this._typeLabel(source.watcher_type)}</div>
         </div>
-        <div><div class="status">${current?.is_current ? "Aktiv" : "Online"}</div><div class="meta">${current ? this._rel(current.last_seen) : "-"}</div></div>
+        <div><div class="status">${source.online === false ? "Offline" : (current?.is_current ? "Aktiv" : "Online")}</div><div class="meta">${current ? this._rel(current.last_seen) : "-"}</div></div>
       </article>`;
     }).join("");
     return `<section class="grid watchers${full ? " full" : ""}">${cards || `<div class="card empty">Noch keine Watcher geladen.</div>`}</section>`;

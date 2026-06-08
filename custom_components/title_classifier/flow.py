@@ -23,6 +23,7 @@ from .const import (
     CONF_CATEGORY,
     CONF_ENTRY_TYPE,
     CONF_HUB_ENTRY_ID,
+    CONF_ONLINE_ENTITY,
     CONF_PLATFORM,
     CONF_RETENTION_DAYS,
     CONF_SCOPE,
@@ -178,6 +179,7 @@ class ConfigFlowHelper:
                 CONF_CATEGORY: category,
                 CONF_PLATFORM: user_input.get(CONF_PLATFORM) or None,
                 CONF_SCOPE: user_input.get(CONF_SCOPE) or DEFAULT_SCOPE,
+                CONF_ONLINE_ENTITY: user_input.get(CONF_ONLINE_ENTITY) or None,
                 CONF_WATCHER_TYPE: CATEGORY_TO_WATCHER_TYPE.get(category, "media"),
             }
             return self.flow.async_update_reload_and_abort(entry, data=new_data)
@@ -197,6 +199,14 @@ class ConfigFlowHelper:
                 vol.Required(
                     CONF_SCOPE, default=d.get(CONF_SCOPE, DEFAULT_SCOPE)
                 ): selector.TextSelector(),
+                vol.Optional(
+                    CONF_ONLINE_ENTITY,
+                    description={"suggested_value": d.get(CONF_ONLINE_ENTITY)},
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(
+                        domain=["binary_sensor", "switch", "sensor", "input_boolean"]
+                    )
+                ),
             }),
         )
 
@@ -216,6 +226,11 @@ class ConfigFlowHelper:
                 vol.Required(CONF_NAME): selector.TextSelector(),
                 vol.Required(CONF_SOURCE_ENTITY): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain=["media_player", "sensor"])
+                ),
+                vol.Optional(CONF_ONLINE_ENTITY): selector.EntitySelector(
+                    selector.EntitySelectorConfig(
+                        domain=["binary_sensor", "switch", "sensor", "input_boolean"]
+                    )
                 ),
                 vol.Required(CONF_CATEGORY, default=DEFAULT_CATEGORY): selector.SelectSelector(
                     selector.SelectSelectorConfig(options=CATEGORY_OPTIONS)
@@ -266,6 +281,7 @@ class ConfigFlowHelper:
             CONF_HUB_ENTRY_ID: self._hub_id,
             CONF_NAME: self._user_input[CONF_NAME],
             CONF_SOURCE_ENTITY: self._user_input[CONF_SOURCE_ENTITY],
+            CONF_ONLINE_ENTITY: self._user_input.get(CONF_ONLINE_ENTITY) or None,
             CONF_ARTIST_ATTRIBUTE: self._user_input.get(CONF_ARTIST_ATTRIBUTE),
             CONF_CATEGORY: category,
             CONF_PLATFORM: self._user_input.get(CONF_PLATFORM) or None,

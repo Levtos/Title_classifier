@@ -20,6 +20,7 @@ from .const import (
     CONF_AUTO_HIDE_HOURS,
     CONF_CATEGORY,
     CONF_PLATFORM,
+    CONF_ONLINE_ENTITY,
     CONF_RETENTION_DAYS,
     CONF_SCOPE,
     CONF_SOURCE_ENTITY,
@@ -50,6 +51,7 @@ class WatcherRuntime:
         self.store = store
         self.current_key: str | None = None
         self.current_enum: int | None = None
+        self._online: bool = True
         self._remove_listener = None
         self._listeners: list[Callable[[], None]] = []
         self._last_seen_key: str | None = None
@@ -63,6 +65,31 @@ class WatcherRuntime:
     @property
     def source_entity(self) -> str:
         return self.entry.data[CONF_SOURCE_ENTITY]
+
+    @property
+    def online_entity(self) -> str | None:
+        """Optionales Verfügbarkeits-Entity (z.B. Plug-Power-Active-Atomic)."""
+        return self.entry.data.get(CONF_ONLINE_ENTITY) or None
+
+    @property
+    def online(self) -> bool:
+        return self._online
+
+    # Zustände, die das Online-Entity als „aus/offline" wertet.
+    _OFFLINE_STATES = frozenset({
+        "off", "false", "no", "closed", "0", "standby", "not_home", "away",
+        "unavailable", "unknown", "none", "",
+    })
+
+    def _compute_online(self) -> bool:
+        """True, wenn kein Online-Entity konfiguriert ist ODER es „an" meldet."""
+        eid = self.online_entity
+        if not eid:
+            return True
+        state = self.hass.states.get(eid)
+        if state is None:
+            return False
+        return str(state.state).strip().lower() not in self._OFFLINE_STATES
 
     @property
     def category(self) -> str:
@@ -101,11 +128,17 @@ class WatcherRuntime:
 
     async def async_setup(self) -> None:
         await self.store.async_load()
+        watched = [self.source_entity]
+        if self.online_entity:
+            watched.append(self.online_entity)
         self._remove_listener = async_track_state_change_event(
-            self.hass, [self.source_entity], self._async_source_changed
+            self.hass, watched, self._async_source_changed
         )
+        self._online = self._compute_online()
         state = self.hass.states.get(self.source_entity)
-        if state is not None:
+        if not self._online:
+            self._apply_offline_fallback()
+        elif state is not None:
             await self.async_process_state(state)
 
     async def async_unload(self) -> None:
@@ -142,11 +175,34 @@ class WatcherRuntime:
         self.notify_listeners()
 
     async def _async_source_changed(self, event: Event) -> None:
+        eid = event.data.get("entity_id")
+        if self.online_entity and eid == self.online_entity:
+            await self._async_online_changed()
+            return
         new_state = event.data.get("new_state")
         if new_state is not None:
             await self.async_process_state(new_state)
 
+    async def _async_online_changed(self) -> None:
+        """Online-Entity gewechselt → offline: Fallback-Enum; online: Quelle neu lesen."""
+        was_online = self._online
+        self._online = self._compute_online()
+        if self._online == was_online:
+            return
+        if not self._online:
+            self._apply_offline_fallback()
+            return
+        state = self.hass.states.get(self.source_entity)
+        if state is not None:
+            await self.async_process_state(state)
+        else:
+            self.notify_listeners()
+
     async def async_process_state(self, state: State) -> None:
+        # Gerät offline (Online-Entity „aus") → nicht klassifizieren, Fallback halten.
+        if not self._online:
+            self._apply_offline_fallback()
+            return
         key = self.key_from_state(state)
         if not key:
             self._apply_offline_fallback()
