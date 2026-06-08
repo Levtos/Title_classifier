@@ -26,6 +26,7 @@ from .const import (
     CONF_WATCHER_TYPE,
     DEFAULT_ARTIST_ATTRIBUTE,
     DEFAULT_CATEGORY,
+    DEFAULT_ENUM,
     DEFAULT_SCOPE,
     IGNORED_RAW_VALUES,
     MEDIA_FEATURE_MARKERS,
@@ -148,7 +149,7 @@ class WatcherRuntime:
     async def async_process_state(self, state: State) -> None:
         key = self.key_from_state(state)
         if not key:
-            self._clear_current_title()
+            self._apply_offline_fallback()
             return
         watcher_type = self.entry.data[CONF_WATCHER_TYPE]
         if watcher_type == "media":
@@ -222,11 +223,15 @@ class WatcherRuntime:
             self.refresh_current_enum()
         self.notify_listeners()
 
-    def _clear_current_title(self) -> None:
-        if self.current_key is None and self.current_enum is None:
+    def _apply_offline_fallback(self) -> None:
+        """Quelle ohne Titel / unavailable (offline) → definierter Fallback-Enum
+        statt 'Unbekannt'. Offline = nichts läuft → DEFAULT_ENUM (0 = No Game),
+        damit Downstream (z.B. light_policy Gaming-Subentry) sauber auf 'kein
+        Spiel' fällt, statt das Enum-Entity unavailable zu machen."""
+        if self.current_key is None and self.current_enum == DEFAULT_ENUM:
             return
         self.current_key = None
-        self.current_enum = None
+        self.current_enum = DEFAULT_ENUM
         self.notify_listeners()
 
     def key_from_state(self, state: State) -> str | None:

@@ -201,7 +201,9 @@ class TitleClassifierCurrentTitleEnumNumber(NumberEntity):
 
     @property
     def available(self) -> bool:
-        return self._runtime.current_key is not None
+        # Entkoppelt vom current_key: der Offline-Fallback (DEFAULT_ENUM) ist ein
+        # gültiger Wert → Entity bleibt verfügbar und zeigt 0 statt "Unbekannt".
+        return self._runtime.current_enum is not None
 
     @property
     def native_value(self) -> int | None:
