@@ -1,7 +1,7 @@
 {
   "domain": "title_classifier",
   "name": "Title Classifier",
-  "version": "2.4.0",
+  "version": "2.4.1",
   "documentation": "https://github.com/Levtos/Title_classifier",
   "issue_tracker": "https://github.com/Levtos/Title_classifier/issues",
   "codeowners": ["@Levtos"],
