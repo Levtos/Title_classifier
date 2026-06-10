@@ -48,6 +48,16 @@ CATEGORIES = ("music", "game", "tv", "stash")
 DEFAULT_CATEGORY = "music"
 DEFAULT_SCOPE = "default"
 
+# FLEET-43: Stash hat inverse Enum-Semantik ggü. Spiel/Musik. Bei Games ist
+# Enum 0 ein expliziter Default-/Leerwert mit Katalogpflege („klassifiziere
+# mich"); bei Stash gilt: Titel vorhanden = aktiv. Der Watcher hebt deshalb
+# zur Laufzeit jeden Katalog-Enum < STASH_ACTIVE_ENUM auf STASH_ACTIVE_ENUM an,
+# sobald ein Titel anliegt — keine Katalogpflege nötig. Enum 0 bleibt allein
+# dem „nichts läuft"-Zustand (kein Titel bzw. offline via online_entity,
+# z.B. sensor.stash_active_streams: "0" zählt als offline).
+CATEGORY_STASH: Final[str] = "stash"
+STASH_ACTIVE_ENUM: Final[int] = 1
+
 # How each category drives the title-extraction behaviour in runtime.py
 # (which still keys off the legacy watcher_type values).
 CATEGORY_TO_WATCHER_TYPE = {

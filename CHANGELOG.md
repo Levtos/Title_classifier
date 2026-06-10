@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.3.0 - 2026-06-10
+
+- FLEET-43: Stash-Auto-Enum — Kategorie `stash` bekommt inverse Enum-Semantik:
+  Titel vorhanden ⇒ Enum automatisch ≥ 1 (keine Katalogpflege nötig); Enum 0
+  bleibt allein dem „nichts läuft"-Zustand vorbehalten (kein Titel / offline
+  via `online_entity`, z.B. `sensor.stash_active_streams` mit `0` Streams).
+  Manuell gemappte Katalog-Enums > 1 gewinnen weiterhin. Katalog (Raw-Titel,
+  Sichtungszähler, Verlauf) läuft unverändert mit — bewusst keine
+  Sonder-Privacy-Logik.
+
 ## 1.1.1 - 2026-06-01
 
 - Fixed enum pill assignment in the Workbench UI so clicking `0` to `9`
