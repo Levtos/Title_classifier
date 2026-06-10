@@ -676,14 +676,20 @@ textarea { width: 100%; min-height: 220px; padding: 12px; resize: vertical; font
       const current = this._allEntries.find(e => e.entry_id === source.entry_id && e.is_current)
         || [...this._allEntries].filter(e => e.entry_id === source.entry_id)
           .sort((a, b) => new Date(b.last_seen || 0) - new Date(a.last_seen || 0))[0];
+      // Live-Titel bevorzugen: current_key kommt direkt aus der Runtime. Der
+      // Katalog-Eintrag kann fehlen/ausgeblendet sein → sonst stuende die rohe
+      // Source-Entity-ID (z.B. "sensor.stash_currently_playing") in der Karte.
+      const title = source.current_key || current?.key || source.source_entity || "Kein aktueller Wert";
+      const active = source.online !== false && !!source.current_key;
+      const seen = current?.last_seen;
       return `<article class="card watch-card">
         <div class="watch-ico">${this._kindIconFor(source.category, source.watcher_type)}</div>
         <div>
           <h3>${this._esc(source.name)}</h3>
-          <strong>${this._esc(current?.key || source.source_entity || "Kein aktueller Wert")}</strong>
+          <strong>${this._esc(title)}</strong>
           <div class="meta">${this._sourceEnum(source, current)} · ${this._kindLabel(source.category, source.watcher_type)}</div>
         </div>
-        <div><div class="status">${source.online === false ? "Offline" : (current?.is_current ? "Aktiv" : "Online")}</div><div class="meta">${current ? this._rel(current.last_seen) : "-"}</div></div>
+        <div><div class="status">${source.online === false ? "Offline" : (active ? "Aktiv" : "Online")}</div><div class="meta">${seen ? this._rel(seen) : "-"}</div></div>
       </article>`;
     }).join("");
     return `<section class="grid watchers${full ? " full" : ""}">${cards || `<div class="card empty">Noch keine Watcher geladen.</div>`}</section>`;
@@ -902,7 +908,7 @@ textarea { width: 100%; min-height: 220px; padding: 12px; resize: vertical; font
   }
 
   _manifestVersion() {
-    return "2.4.0";
+    return "2.4.1";
   }
 
   _typeLabel(type) {
