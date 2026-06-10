@@ -677,11 +677,11 @@ textarea { width: 100%; min-height: 220px; padding: 12px; resize: vertical; font
         || [...this._allEntries].filter(e => e.entry_id === source.entry_id)
           .sort((a, b) => new Date(b.last_seen || 0) - new Date(a.last_seen || 0))[0];
       return `<article class="card watch-card">
-        <div class="watch-ico">${this._kindIcon(source.watcher_type)}</div>
+        <div class="watch-ico">${this._kindIconFor(source.category, source.watcher_type)}</div>
         <div>
           <h3>${this._esc(source.name)}</h3>
           <strong>${this._esc(current?.key || source.source_entity || "Kein aktueller Wert")}</strong>
-          <div class="meta">Enum ${current?.enum ?? 0} · ${this._typeLabel(source.watcher_type)}</div>
+          <div class="meta">${this._sourceEnum(source, current)} · ${this._kindLabel(source.category, source.watcher_type)}</div>
         </div>
         <div><div class="status">${source.online === false ? "Offline" : (current?.is_current ? "Aktiv" : "Online")}</div><div class="meta">${current ? this._rel(current.last_seen) : "-"}</div></div>
       </article>`;
@@ -756,7 +756,7 @@ textarea { width: 100%; min-height: 220px; padding: 12px; resize: vertical; font
     return `<tr class="row ${selected ? "selected" : ""}" data-eid="${this._esc(entry.entry_id)}" data-key="${this._esc(entry.key)}" data-token="${this._esc(this._entryToken(entry))}">
       <td class="title-cell">
         <strong>${this._esc(entry.key)} ${entry.is_current ? `<span class="source-pill">aktiv</span>` : ""}</strong>
-        <div class="meta">${this._typeLabel(entry.watcher_type)}${entry.hidden ? " · ausgeblendet" : ""}</div>
+        <div class="meta">${this._kindLabel(entry.category, entry.watcher_type)}${entry.hidden ? " · ausgeblendet" : ""}</div>
       </td>
       <td><span class="source-pill">${this._esc(entry.source_name)}</span></td>
       <td class="enum-slot">${this._enumSummary(entry)}</td>
@@ -795,10 +795,10 @@ textarea { width: 100%; min-height: 220px; padding: 12px; resize: vertical; font
     const changed = draft !== entry.enum;
     return `<aside class="card drawer">
       <div class="drawer-head">
-        <div><h2>${this._esc(entry.key)}</h2><div class="meta">${this._esc(entry.source_name)} · ${this._typeLabel(entry.watcher_type)}</div></div>
+        <div><h2>${this._esc(entry.key)}</h2><div class="meta">${this._esc(entry.source_name)} · ${this._kindLabel(entry.category, entry.watcher_type)}</div></div>
         <button class="btn" id="close-detail">x</button>
       </div>
-      <div class="cover">${this._kindIcon(entry.watcher_type)}</div>
+      <div class="cover">${this._kindIconFor(entry.category, entry.watcher_type)}</div>
       <div class="details">
         ${this._detail("Enum", entry.enum)}
         ${this._detail("Quelle", entry.source_name)}
@@ -902,11 +902,34 @@ textarea { width: 100%; min-height: 220px; padding: 12px; resize: vertical; font
   }
 
   _manifestVersion() {
-    return "2.1.8";
+    return "2.4.0";
   }
 
   _typeLabel(type) {
     return { media: "Musik / Medien", game: "Spiel / App", activity: "Aktivitaet" }[type] || type || "-";
+  }
+
+  // Kategorie schlaegt Watcher-Typ: Stash ist zwar ein media-Watcher, aber
+  // inhaltlich Video/Streaming — nicht Musik.
+  _kindLabel(category, type) {
+    if (category === "stash") return "Video / Medien";
+    return this._typeLabel(type);
+  }
+
+  _kindIconFor(category, type) {
+    if (category === "stash") return this._icon("video");
+    return this._kindIcon(type);
+  }
+
+  // Effektiver Enum fuer die aktive Quelle: der zur Laufzeit gefloorte Wert
+  // (current_enum), nicht der Rohkatalog-Wert. Bei Stash 0→1 mit "(auto)"-Hinweis.
+  _sourceEnum(source, current) {
+    const active = source.online !== false && source.current_key;
+    if (active && source.current_enum != null) {
+      const floored = source.category === "stash" && (current?.enum ?? 0) < source.current_enum;
+      return `Enum ${source.current_enum}${floored ? " (auto)" : ""}`;
+    }
+    return `Enum ${current?.enum ?? 0}`;
   }
 
   _kindIcon(type) {
@@ -935,6 +958,7 @@ textarea { width: 100%; min-height: 220px; padding: 12px; resize: vertical; font
       settings: "⚙",
       refresh: "↻",
       music: "♪",
+      video: "▶",
       game: "☍",
       activity: "↯",
       bell: "◒",

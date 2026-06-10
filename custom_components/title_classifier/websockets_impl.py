@@ -97,6 +97,7 @@ async def ws_import_entries(hass: HomeAssistant, connection, msg: dict[str, Any]
 async def ws_get_sources(hass: HomeAssistant, connection, msg: dict[str, Any]) -> None:
     sources = []
     for runtime in all_runtimes(hass):
+        runtime.refresh_current_enum()
         entries = runtime.store.entries
         total = len(entries)
         unmapped = sum(1 for entry in entries.values() if entry.enum == 0)
@@ -106,8 +107,13 @@ async def ws_get_sources(hass: HomeAssistant, connection, msg: dict[str, Any]) -
             "entry_id": runtime.entry.entry_id,
             "name": runtime.name,
             "watcher_type": runtime.entry.data["watcher_type"],
+            "category": runtime.category,
             "source_entity": runtime.source_entity,
             "online": runtime.online,
+            # Effektiver (zur Laufzeit gefloorter) Enum + aktueller Titel — die UX
+            # zeigt sonst nur den Rohkatalog-Wert (bei Stash 0 trotz Floor auf 1).
+            "current_key": runtime.current_key,
+            "current_enum": runtime.current_enum,
             "entry_count": total,
             "unmapped_count": unmapped,
             "hidden_count": hidden,
@@ -151,6 +157,7 @@ async def ws_list_entries(hass: HomeAssistant, connection, msg: dict[str, Any]) 
                 "entry_id": entry_id,
                 "source_name": runtime.name,
                 "watcher_type": runtime.entry.data["watcher_type"],
+                "category": runtime.category,
                 "key": entry.key,
                 "enum": entry.enum,
                 "first_seen": entry.first_seen,
