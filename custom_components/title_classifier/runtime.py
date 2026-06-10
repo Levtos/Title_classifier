@@ -16,6 +16,7 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     ARTIST_ATTRIBUTE_CANDIDATES,
+    CATEGORY_STASH,
     CONF_ARTIST_ATTRIBUTE,
     CONF_AUTO_HIDE_HOURS,
     CONF_CATEGORY,
@@ -33,6 +34,7 @@ from .const import (
     MEDIA_FEATURE_MARKERS,
     MEDIA_RICH_TITLE_MARKERS,
     RADIO_STATION_ATTRIBUTE_CANDIDATES,
+    STASH_ACTIVE_ENUM,
     TITLE_ATTRIBUTE_CANDIDATES,
 )
 from .postgres_store import PostgresMapperStore
@@ -154,7 +156,17 @@ class WatcherRuntime:
             update_callback()
 
     def refresh_current_enum(self) -> None:
-        self.current_enum = self.store.get_enum(self.current_key) if self.current_key else None
+        if not self.current_key:
+            self.current_enum = None
+            return
+        enum = self.store.get_enum(self.current_key)
+        # FLEET-43 Stash-Auto-Enum: Titel vorhanden ⇒ aktiv (enum >= 1), ohne
+        # Katalogpflege. Ein manuell gemapptes Katalog-Enum > 1 gewinnt
+        # weiterhin; nur der Default 0 wird angehoben. Enum 0 bleibt dem
+        # „nichts läuft"-Zustand vorbehalten (kein Titel / offline-Fallback).
+        if self.category == CATEGORY_STASH and enum < STASH_ACTIVE_ENUM:
+            enum = STASH_ACTIVE_ENUM
+        self.current_enum = enum
 
     def catalog_summary(self) -> dict[str, Any]:
         entries = self.store.sorted_entries()
