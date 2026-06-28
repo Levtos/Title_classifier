@@ -955,8 +955,13 @@ textarea { width: 100%; min-height: 220px; padding: 12px; resize: vertical; font
   _platformCell(entry) {
     const kind = this._kindLabel(entry.category, entry.watcher_type);
     const platform = entry.platform
-      ? `<span class="kind-pill">${this._esc(entry.platform)}</span>` : "";
+      ? `<span class="kind-pill">${this._esc(this._platformLabel(entry.platform))}</span>` : "";
     return `<span class="source-pill">${this._esc(kind)}</span> ${platform}`;
+  }
+
+  _platformLabel(platform) {
+    // Normalise display so historical "PS5" and config "ps5" look uniform.
+    return platform ? String(platform).toUpperCase() : "—";
   }
 
   _enumSummary(entry) {
@@ -989,13 +994,14 @@ textarea { width: 100%; min-height: 220px; padding: 12px; resize: vertical; font
     const changed = draft !== entry.enum;
     return `<aside class="card drawer">
       <div class="drawer-head">
-        <div><h2>${this._esc(entry.key)}</h2><div class="meta">${this._esc(entry.source_name)} · ${this._kindLabel(entry.category, entry.watcher_type)}</div></div>
+        <div><h2>${this._esc(entry.key)}</h2><div class="meta">${this._kindLabel(entry.category, entry.watcher_type)}${entry.platform ? " · " + this._esc(this._platformLabel(entry.platform)) : ""}</div></div>
         <button class="btn" id="close-detail">x</button>
       </div>
       <div class="cover">${this._kindIconFor(entry.category, entry.watcher_type)}</div>
       <div class="details">
         ${this._detail("Enum", entry.enum)}
-        ${this._detail("Quelle", entry.source_name)}
+        ${this._detail("Typ", this._kindLabel(entry.category, entry.watcher_type))}
+        ${this._detail("Plattform", this._platformLabel(entry.platform))}
         ${this._detail("Ersterkannt", this._date(entry.first_seen))}
         ${this._detail("Zuletzt gesehen", this._date(entry.last_seen))}
         ${this._detail("Sichtungen", entry.seen_count ?? 0)}
@@ -1020,7 +1026,7 @@ textarea { width: 100%; min-height: 220px; padding: 12px; resize: vertical; font
         <label class="edit-label">Plattform</label>
         <div class="edit-row">
           <select class="edit-input" id="platform-select" data-eid="${this._esc(entry.entry_id)}" data-key="${this._esc(entry.key)}">
-            ${PLATFORMS.map(p => `<option value="${p}"${(entry.platform || "") === p ? " selected" : ""}>${p || "— keine —"}</option>`).join("")}
+            ${PLATFORMS.map(p => `<option value="${p}"${(entry.platform || "").toLowerCase() === p ? " selected" : ""}>${p ? p.toUpperCase() : "— keine —"}</option>`).join("")}
           </select>
           <button class="btn" id="platform-apply">Setzen</button>
         </div>
@@ -1127,7 +1133,7 @@ textarea { width: 100%; min-height: 220px; padding: 12px; resize: vertical; font
   }
 
   _manifestVersion() {
-    return "2.5.0";
+    return "2.5.1";
   }
 
   _typeLabel(type) {
