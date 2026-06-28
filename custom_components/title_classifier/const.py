@@ -107,6 +107,7 @@ SERVICE_CLEAR_OLD = "clear_old"
 SERVICE_IMPORT_ENTRIES = "import_entries"
 SERVICE_HIDE_UNMAPPED = "hide_unmapped"
 SERVICE_IMPORT_LOCAL_STORAGE = "import_local_storage"
+SERVICE_DEDUPE_CATALOG = "dedupe_catalog"
 
 PANEL_TITLE = "Title Classifier"
 PANEL_ICON = "mdi:tag-multiple"

@@ -186,6 +186,107 @@ class WatcherRuntime:
         self.refresh_current_enum()
         self.notify_listeners()
 
+    async def async_rename(self, old_key: str, new_key: str) -> bool:
+        """Rename a catalog key (manual title correction).
+
+        For media watchers the artist/title columns are re-derived from the new
+        ``Artist - Title`` key so the resolver/cover side stays consistent.
+        """
+        new_key = normalise_user_key(new_key)
+        artist = title = None
+        if self.entry.data[CONF_WATCHER_TYPE] == "media":
+            split_artist, split_title = split_media_key(new_key)
+            artist = split_artist or None
+            title = split_title or None
+        changed = await self.store.async_rename_key(
+            old_key, new_key, artist=artist, title=title
+        )
+        if changed:
+            if self.current_key == old_key:
+                self.current_key = new_key
+            self.refresh_current_enum()
+            self.notify_listeners()
+        return changed
+
+    async def async_set_platform(self, key: str, platform: str | None) -> bool:
+        """Manually correct a row's platform (e.g. pc → ps5)."""
+        platform = (platform or "").strip() or None
+        entry = await self.store.async_set_platform(key, platform)
+        if entry is not None:
+            self.notify_listeners()
+        return entry is not None
+
+    async def async_unhide(self, key: str) -> bool:
+        """Restore a hidden/archived entry."""
+        changed = await self.store.async_unhide(key)
+        if changed:
+            self.refresh_current_enum()
+            self.notify_listeners()
+        return changed
+
+    async def async_merge(self, target_key: str, source_keys: list[str]) -> int:
+        """Merge ``source_keys`` into ``target_key`` (manual dedupe)."""
+        sources = [k for k in source_keys if k and k != target_key]
+        if not sources:
+            return 0
+        await self.store.async_merge_keys(target_key, sources)
+        if self.current_key in sources:
+            self.current_key = target_key
+        self.refresh_current_enum()
+        self.notify_listeners()
+        return len(sources)
+
+    def _duplicate_groups(self) -> list[list[str]]:
+        """Group catalog keys that match under the media-dedupe rule."""
+        keys = list(self.store.entries.keys())
+        seen: set[str] = set()
+        groups: list[list[str]] = []
+        for index, key in enumerate(keys):
+            if key in seen:
+                continue
+            group = [key]
+            seen.add(key)
+            for other in keys[index + 1:]:
+                if other in seen:
+                    continue
+                if media_keys_match(key, other):
+                    group.append(other)
+                    seen.add(other)
+            if len(group) > 1:
+                groups.append(group)
+        return groups
+
+    async def async_dedupe_catalog(self, dry_run: bool = False) -> dict[str, Any]:
+        """Retroactively merge existing duplicate keys (one-off sweep).
+
+        Canonical survivor per group = highest ``seen_count`` (most-played
+        variant), tie-broken by the richer key score. Returns a report; with
+        ``dry_run`` nothing is written.
+        """
+        groups = self._duplicate_groups()
+        merged = 0
+        preview: list[dict[str, Any]] = []
+        for group in groups:
+            canonical = max(
+                group,
+                key=lambda k: (self.store.entries[k].seen_count, media_key_score(k)),
+            )
+            sources = [k for k in group if k != canonical]
+            preview.append({"target": canonical, "sources": sources})
+            if not dry_run:
+                await self.store.async_merge_keys(canonical, sources)
+                merged += len(sources)
+        if not dry_run and merged:
+            self.refresh_current_enum()
+            self.notify_listeners()
+        return {
+            "groups": len(groups),
+            "duplicates": sum(len(g["sources"]) for g in preview),
+            "merged": merged,
+            "dry_run": dry_run,
+            "preview": preview if dry_run else None,
+        }
+
     async def _async_source_changed(self, event: Event) -> None:
         eid = event.data.get("entity_id")
         if self.online_entity and eid == self.online_entity:

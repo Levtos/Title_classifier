@@ -128,7 +128,7 @@ async def ws_get_sources(hass: HomeAssistant, connection, msg: dict[str, Any]) -
     vol.Optional("unclassified"): bool,
     vol.Optional("search"): cv.string,
     vol.Optional("include_hidden"): bool,
-    vol.Optional("limit"): vol.All(vol.Coerce(int), vol.Range(min=1, max=1000)),
+    vol.Optional("limit"): vol.All(vol.Coerce(int), vol.Range(min=1, max=20000)),
 })
 @websocket_api.require_admin
 @websocket_api.async_response
@@ -139,13 +139,20 @@ async def ws_list_entries(hass: HomeAssistant, connection, msg: dict[str, Any]) 
     include_hidden: bool = msg.get("include_hidden", False)
     limit: int | None = msg.get("limit")
 
+    # The catalog is shared per (scope, category): several watchers (PC + ps5
+    # both 'game') load the SAME rows. Dedupe by identity so each row appears
+    # once instead of once-per-watcher with a fake "source" attribution.
     result = []
+    seen_identity: set[tuple[str, str, str]] = set()
     for runtime in all_runtimes(hass):
         entry_id = runtime.entry.entry_id
         if source_filter and entry_id != source_filter:
             continue
         cutoff = None if include_hidden else runtime.auto_hide_cutoff()
         for entry in runtime.store.entries.values():
+            identity = (runtime.scope, runtime.category, entry.key)
+            if identity in seen_identity:
+                continue
             if unclassified_only and entry.enum != 0:
                 continue
             if search and search not in entry.key.lower():
@@ -153,11 +160,14 @@ async def ws_list_entries(hass: HomeAssistant, connection, msg: dict[str, Any]) 
             hidden = entry.is_hidden(cutoff)
             if not include_hidden and hidden:
                 continue
+            seen_identity.add(identity)
             result.append({
                 "entry_id": entry_id,
                 "source_name": runtime.name,
                 "watcher_type": runtime.entry.data["watcher_type"],
                 "category": runtime.category,
+                "platform": entry.platform,
+                "scope": runtime.scope,
                 "key": entry.key,
                 "enum": entry.enum,
                 "first_seen": entry.first_seen,
@@ -172,6 +182,76 @@ async def ws_list_entries(hass: HomeAssistant, connection, msg: dict[str, Any]) 
         if limit and len(result) >= limit:
             break
     connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): _wt("rename_entry"),
+    vol.Required(ATTR_ENTRY_ID): cv.string,
+    vol.Required(ATTR_KEY): cv.string,
+    vol.Required("new_key"): cv.string,
+})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_rename_entry(hass: HomeAssistant, connection, msg: dict[str, Any]) -> None:
+    runtime = require_runtime(hass, msg[ATTR_ENTRY_ID])
+    changed = await runtime.async_rename(msg[ATTR_KEY], msg["new_key"])
+    connection.send_result(msg["id"], {"renamed": changed})
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): _wt("set_platform"),
+    vol.Required(ATTR_ENTRY_ID): cv.string,
+    vol.Required(ATTR_KEY): cv.string,
+    vol.Optional("platform"): vol.Any(cv.string, None),
+})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_set_platform(hass: HomeAssistant, connection, msg: dict[str, Any]) -> None:
+    runtime = require_runtime(hass, msg[ATTR_ENTRY_ID])
+    changed = await runtime.async_set_platform(msg[ATTR_KEY], msg.get("platform"))
+    connection.send_result(msg["id"], {"updated": changed})
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): _wt("unhide_entry"),
+    vol.Required(ATTR_ENTRY_ID): cv.string,
+    vol.Required(ATTR_KEY): cv.string,
+})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_unhide_entry(hass: HomeAssistant, connection, msg: dict[str, Any]) -> None:
+    runtime = require_runtime(hass, msg[ATTR_ENTRY_ID])
+    changed = await runtime.async_unhide(msg[ATTR_KEY])
+    connection.send_result(msg["id"], {"unhidden": changed})
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): _wt("merge_entries"),
+    vol.Required(ATTR_ENTRY_ID): cv.string,
+    vol.Required("target_key"): cv.string,
+    vol.Required("source_keys"): vol.All(cv.ensure_list, [cv.string]),
+})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_merge_entries(hass: HomeAssistant, connection, msg: dict[str, Any]) -> None:
+    runtime = require_runtime(hass, msg[ATTR_ENTRY_ID])
+    merged = await runtime.async_merge(
+        normalise_user_key(msg["target_key"]), msg["source_keys"]
+    )
+    connection.send_result(msg["id"], {"merged": merged})
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): _wt("dedupe_catalog"),
+    vol.Required(ATTR_ENTRY_ID): cv.string,
+    vol.Optional("dry_run"): bool,
+})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_dedupe_catalog(hass: HomeAssistant, connection, msg: dict[str, Any]) -> None:
+    runtime = require_runtime(hass, msg[ATTR_ENTRY_ID])
+    report = await runtime.async_dedupe_catalog(dry_run=msg.get("dry_run", False))
+    connection.send_result(msg["id"], report)
 
 
 @websocket_api.websocket_command({
@@ -215,4 +295,9 @@ WEBSOCKETS = [
     ws_list_entries,
     ws_update_entry,
     ws_hide_unmapped,
+    ws_rename_entry,
+    ws_set_platform,
+    ws_unhide_entry,
+    ws_merge_entries,
+    ws_dedupe_catalog,
 ]

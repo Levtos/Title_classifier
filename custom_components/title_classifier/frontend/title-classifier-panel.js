@@ -10,10 +10,12 @@ const VIEWS = [
   ["overview", "Uebersicht"],
   ["inbox", "Inbox"],
   ["catalog", "Katalog"],
+  ["archive", "Archiv"],
   ["watchers", "Watcher"],
   ["import", "Import / Export"],
   ["settings", "Einstellungen"],
 ];
+const PLATFORMS = ["", "pc", "ps5", "switch", "tv", "mobile"];
 
 class TitleClassifierPanel extends HTMLElement {
   constructor() {
@@ -39,6 +41,9 @@ class TitleClassifierPanel extends HTMLElement {
     this._exportText = "";
     this._importText = "";
     this._draftEnums = new Map();
+    this._mergeMode = false;
+    this._selection = new Set();
+    this._mergeCanonical = null;
 
     this._loadState();
   }
@@ -103,7 +108,10 @@ class TitleClassifierPanel extends HTMLElement {
     try {
       const [sources, entries] = await Promise.all([
         this._ws({ type: "title_classifier/get_sources" }),
-        this._ws({ type: "title_classifier/list_entries", include_hidden: true, limit: 1000 }),
+        // No row cap: the catalog is deduped server-side per (scope, category)
+        // now, but Musikkatalog alone is >1300 titles — a 1000-cap silently
+        // dropped the tail (and the whole archive). Pull everything.
+        this._ws({ type: "title_classifier/list_entries", include_hidden: true }),
       ]);
       this._sources = Array.isArray(sources) ? sources : [];
       this._allEntries = Array.isArray(entries) ? entries : [];
@@ -127,11 +135,13 @@ class TitleClassifierPanel extends HTMLElement {
     const query = this._filterSearch.trim().toLowerCase();
     let rows = [...this._allEntries];
     if (this._view === "inbox") rows = rows.filter(e => e.enum === 0);
+    // Archive = exactly the hidden entries, regardless of the include-hidden toggle.
+    if (this._view === "archive") rows = rows.filter(e => e.hidden);
     if (this._filterSource) rows = rows.filter(e => e.entry_id === this._filterSource);
     if (this._filterType !== "all") rows = rows.filter(e => e.watcher_type === this._filterType);
     if (this._filterClass === "unclassified") rows = rows.filter(e => e.enum === 0);
     if (this._filterClass === "classified") rows = rows.filter(e => e.enum !== 0);
-    if (!this._includeHidden) rows = rows.filter(e => !e.hidden);
+    if (this._view !== "archive" && !this._includeHidden) rows = rows.filter(e => !e.hidden);
     if (query) rows = rows.filter(e =>
       e.key.toLowerCase().includes(query)
       || (e.source_name || "").toLowerCase().includes(query)
@@ -162,9 +172,12 @@ class TitleClassifierPanel extends HTMLElement {
   }
 
   _stats() {
-    const total = this._sources.reduce((sum, s) => sum + (s.entry_count || 0), 0);
-    const unclassified = this._sources.reduce((sum, s) => sum + (s.unmapped_count || 0), 0);
-    const hidden = this._sources.reduce((sum, s) => sum + (s.hidden_count || 0), 0);
+    // Derive from the deduped entry list, not the per-watcher source counts —
+    // those double-count rows shared across watchers of the same category
+    // (PC + ps5 both 'game' reported 10 + 10 for the same 10 games).
+    const total = this._allEntries.length;
+    const unclassified = this._allEntries.reduce((n, e) => n + (e.enum === 0 ? 1 : 0), 0);
+    const hidden = this._allEntries.reduce((n, e) => n + (e.hidden ? 1 : 0), 0);
     const activeWatchers = this._sources.length;
     const current = this._currentEntry();
     const last = [...this._allEntries].sort((a, b) =>
@@ -309,6 +322,24 @@ class TitleClassifierPanel extends HTMLElement {
       const entry = this._entryByToken(ev.currentTarget.dataset.token);
       if (entry) this._applyDraftEnum(entry);
     });
+    root.querySelector("#rename-apply")?.addEventListener("click", () => {
+      const input = root.querySelector("#rename-input");
+      if (input) this._renameEntry(input.dataset.eid, input.dataset.key, input.value);
+    });
+    root.querySelector("#rename-input")?.addEventListener("keydown", ev => {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        this._renameEntry(ev.target.dataset.eid, ev.target.dataset.key, ev.target.value);
+      }
+    });
+    root.querySelector("#platform-apply")?.addEventListener("click", () => {
+      const sel = root.querySelector("#platform-select");
+      if (sel) this._setPlatform(sel.dataset.eid, sel.dataset.key, sel.value);
+    });
+    root.querySelector("#unhide-entry")?.addEventListener("click", ev => {
+      const t = ev.currentTarget;
+      this._unhideEntry(t.dataset.eid, t.dataset.key);
+    });
   }
 
   async _deleteEntry(entry) {
@@ -339,6 +370,113 @@ class TitleClassifierPanel extends HTMLElement {
       this._toast("Unklassifizierte Eintraege ausgeblendet", "success");
     } catch (err) {
       this._toast(`Ausblenden fehlgeschlagen: ${err.message}`, "error");
+    }
+  }
+
+  async _renameEntry(entryId, oldKey, newKey) {
+    newKey = (newKey || "").trim();
+    if (!newKey || newKey === oldKey) return;
+    try {
+      const res = await this._ws({
+        type: "title_classifier/rename_entry",
+        entry_id: entryId, key: oldKey, new_key: newKey,
+      });
+      this._selected = null;
+      await this._load({ quiet: true });
+      this._toast(res?.renamed ? "Titel umbenannt" : "Keine Aenderung", res?.renamed ? "success" : "info");
+    } catch (err) {
+      this._toast(`Umbenennen fehlgeschlagen: ${err.message}`, "error");
+    }
+  }
+
+  async _setPlatform(entryId, key, platform) {
+    try {
+      await this._ws({
+        type: "title_classifier/set_platform",
+        entry_id: entryId, key, platform: platform || null,
+      });
+      await this._load({ quiet: true });
+      this._toast(`Plattform: ${platform || "—"}`, "success");
+    } catch (err) {
+      this._toast(`Plattform setzen fehlgeschlagen: ${err.message}`, "error");
+    }
+  }
+
+  async _unhideEntry(entryId, key) {
+    try {
+      await this._ws({ type: "title_classifier/unhide_entry", entry_id: entryId, key });
+      this._selected = null;
+      await this._load({ quiet: true });
+      this._toast("Wiederhergestellt", "success");
+    } catch (err) {
+      this._toast(`Wiederherstellen fehlgeschlagen: ${err.message}`, "error");
+    }
+  }
+
+  _toggleSelect(token, on) {
+    if (on) this._selection.add(token);
+    else {
+      this._selection.delete(token);
+      if (this._mergeCanonical === token) this._mergeCanonical = null;
+    }
+    this._render();
+  }
+
+  _clearMerge() {
+    this._selection.clear();
+    this._mergeCanonical = null;
+    this._render();
+  }
+
+  async _runMerge() {
+    const tokens = [...this._selection];
+    const target = this._entryByToken(this._mergeCanonical);
+    if (!target || tokens.length < 2) {
+      this._toast("Mindestens 2 Eintraege + ein Ziel waehlen", "error");
+      return;
+    }
+    const sources = tokens
+      .map(t => this._entryByToken(t))
+      .filter(e => e && !(e.entry_id === target.entry_id && e.key === target.key));
+    // All rows of one shared (scope, category) carry the same entry_id surface;
+    // use the target's entry_id as the routing handle for the merge call.
+    const sourceKeys = sources.map(e => e.key);
+    if (!window.confirm(`${sourceKeys.length} Eintrag/Eintraege in "${target.key}" zusammenfuehren?`)) return;
+    try {
+      const res = await this._ws({
+        type: "title_classifier/merge_entries",
+        entry_id: target.entry_id, target_key: target.key, source_keys: sourceKeys,
+      });
+      this._clearMerge();
+      this._selected = null;
+      await this._load({ quiet: true });
+      this._toast(`${res?.merged ?? 0} zusammengefuehrt`, "success");
+    } catch (err) {
+      this._toast(`Merge fehlgeschlagen: ${err.message}`, "error");
+    }
+  }
+
+  async _runDedupe() {
+    if (!this._filterSource) {
+      this._toast("Bitte zuerst eine Quelle waehlen", "error");
+      return;
+    }
+    try {
+      const dry = await this._ws({
+        type: "title_classifier/dedupe_catalog",
+        entry_id: this._filterSource, dry_run: true,
+      });
+      const dupes = dry?.duplicates ?? 0;
+      if (!dupes) { this._toast("Keine Dubletten gefunden", "info"); return; }
+      if (!window.confirm(`${dupes} Dublette(n) in ${dry.groups} Gruppe(n) zusammenfuehren?`)) return;
+      const res = await this._ws({
+        type: "title_classifier/dedupe_catalog",
+        entry_id: this._filterSource, dry_run: false,
+      });
+      await this._load({ quiet: true });
+      this._toast(`${res?.merged ?? 0} Dubletten zusammengefuehrt`, "success");
+    } catch (err) {
+      this._toast(`Dedupe fehlgeschlagen: ${err.message}`, "error");
     }
   }
 
@@ -580,6 +718,13 @@ textarea { width: 100%; min-height: 220px; padding: 12px; resize: vertical; font
 .detail-row span:first-child { color: var(--tc-muted); }
 .empty { color: var(--tc-muted); text-align: center; padding: 44px 20px; }
 .import-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 16px; }
+.edit-block { margin-top: 14px; display: grid; gap: 6px; }
+.edit-label { color: var(--tc-muted); font-size: .8rem; }
+.edit-row { display: flex; gap: 8px; align-items: center; }
+.edit-input { flex: 1; min-width: 0; }
+.merge-bar { gap: 8px; align-items: center; border-top: 1px solid var(--tc-border); }
+.merge-bar .btn { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sel-col { width: 36px; text-align: center; }
 .settings { padding: 16px; color: var(--tc-muted); line-height: 1.6; }
 .toast {
   position: fixed; right: 26px; bottom: 26px; z-index: 10; border-radius: var(--tc-radius);
@@ -629,9 +774,11 @@ textarea { width: 100%; min-height: 220px; padding: 12px; resize: vertical; font
   }
 
   _navHtml() {
+    const s = this._stats();
     const counts = {
-      inbox: this._stats().unclassified,
-      catalog: this._stats().total,
+      inbox: s.unclassified,
+      catalog: s.total,
+      archive: s.hidden,
       watchers: this._sources.length,
     };
     return VIEWS.map(([id, label]) => `
@@ -719,7 +866,32 @@ textarea { width: 100%; min-height: 220px; padding: 12px; resize: vertical; font
       </select>
       <label><input type="checkbox" id="include-hidden"${this._includeHidden ? " checked" : ""}> Versteckte zeigen</label>
       <label><input type="checkbox" id="group-artist"${this._groupByArtist ? " checked" : ""}> Nach Kuenstler</label>
+      <label><input type="checkbox" id="merge-mode"${this._mergeMode ? " checked" : ""}> Merge-Modus</label>
       ${this._filterSource ? `<button class="btn" id="hide-unmapped">Unklassifizierte ausblenden</button>` : ""}
+      ${this._filterSource ? `<button class="btn" id="dedupe">Dubletten zusammenfuehren</button>` : ""}
+    </div>${this._mergeBarHtml()}`;
+  }
+
+  _mergeBarHtml() {
+    if (!this._mergeMode) return "";
+    const tokens = [...this._selection];
+    const picked = tokens
+      .map(t => this._entryByToken(t))
+      .filter(Boolean);
+    if (picked.length === 0) {
+      return `<div class="toolbar merge-bar"><span class="meta">Merge-Modus: Eintraege ankreuzen, dann einen als Ziel waehlen.</span></div>`;
+    }
+    const options = picked.map(e => {
+      const token = this._entryToken(e);
+      const isTarget = this._mergeCanonical === token;
+      return `<button class="btn ${isTarget ? "primary" : ""}" data-merge-target="${this._esc(token)}" title="Als Ziel waehlen">${isTarget ? "★ " : ""}${this._esc(e.key)}</button>`;
+    }).join("");
+    const ready = this._mergeCanonical && picked.length >= 2;
+    return `<div class="toolbar merge-bar">
+      <span class="meta">Ziel (bleibt erhalten):</span>
+      ${options}
+      <button class="btn primary" id="run-merge"${ready ? "" : " disabled"}>Zusammenfuehren (${picked.length})</button>
+      <button class="btn" id="clear-merge">Auswahl leeren</button>
     </div>`;
   }
 
@@ -745,10 +917,13 @@ textarea { width: 100%; min-height: 220px; padding: 12px; resize: vertical; font
   }
 
   _tableHtml(rows) {
+    const sel = this._mergeMode
+      ? `<th class="sel-col">${this._icon("merge")}</th>` : "";
     return `<table class="table">
       <thead><tr>
+        ${sel}
         <th data-sort="key">Titel</th>
-        <th data-sort="source">Quelle</th>
+        <th data-sort="source">Typ / Plattform</th>
         <th data-sort="enum">Enum</th>
         <th data-sort="seen_count">Sichtungen</th>
         <th data-sort="last_seen">Zuletzt</th>
@@ -759,16 +934,29 @@ textarea { width: 100%; min-height: 220px; padding: 12px; resize: vertical; font
 
   _entryRow(entry) {
     const selected = this._selected && this._sameEntry(entry, this._selected);
-    return `<tr class="row ${selected ? "selected" : ""}" data-eid="${this._esc(entry.entry_id)}" data-key="${this._esc(entry.key)}" data-token="${this._esc(this._entryToken(entry))}">
+    const token = this._entryToken(entry);
+    const checked = this._selection.has(token);
+    const sel = this._mergeMode
+      ? `<td class="sel-col"><input type="checkbox" class="merge-pick" data-token="${this._esc(token)}"${checked ? " checked" : ""}></td>`
+      : "";
+    return `<tr class="row ${selected ? "selected" : ""}" data-eid="${this._esc(entry.entry_id)}" data-key="${this._esc(entry.key)}" data-token="${this._esc(token)}">
+      ${sel}
       <td class="title-cell">
         <strong>${this._esc(entry.key)} ${entry.is_current ? `<span class="source-pill">aktiv</span>` : ""}</strong>
         <div class="meta">${this._kindLabel(entry.category, entry.watcher_type)}${entry.hidden ? " · ausgeblendet" : ""}</div>
       </td>
-      <td><span class="source-pill">${this._esc(entry.source_name)}</span></td>
+      <td>${this._platformCell(entry)}</td>
       <td class="enum-slot">${this._enumSummary(entry)}</td>
       <td>${entry.seen_count ?? 0}</td>
       <td>${this._rel(entry.last_seen)}</td>
     </tr>`;
+  }
+
+  _platformCell(entry) {
+    const kind = this._kindLabel(entry.category, entry.watcher_type);
+    const platform = entry.platform
+      ? `<span class="kind-pill">${this._esc(entry.platform)}</span>` : "";
+    return `<span class="source-pill">${this._esc(kind)}</span> ${platform}`;
   }
 
   _enumSummary(entry) {
@@ -820,7 +1008,25 @@ textarea { width: 100%; min-height: 220px; padding: 12px; resize: vertical; font
           Apply
         </button>
       </div>
+      <div class="edit-block">
+        <label class="edit-label">Titel umbenennen</label>
+        <div class="edit-row">
+          <input class="filter-input edit-input" id="rename-input" value="${this._esc(entry.key)}" data-eid="${this._esc(entry.entry_id)}" data-key="${this._esc(entry.key)}">
+          <button class="btn" id="rename-apply">Umbenennen</button>
+        </div>
+        <span class="meta">Gleicht der neue Titel einem vorhandenen, werden beide zusammengefuehrt.</span>
+      </div>
+      <div class="edit-block">
+        <label class="edit-label">Plattform</label>
+        <div class="edit-row">
+          <select class="edit-input" id="platform-select" data-eid="${this._esc(entry.entry_id)}" data-key="${this._esc(entry.key)}">
+            ${PLATFORMS.map(p => `<option value="${p}"${(entry.platform || "") === p ? " selected" : ""}>${p || "— keine —"}</option>`).join("")}
+          </select>
+          <button class="btn" id="platform-apply">Setzen</button>
+        </div>
+      </div>
       <div class="toolbar" style="padding-left:0;padding-right:0;border-bottom:0">
+        ${entry.hidden ? `<button class="btn" id="unhide-entry" data-eid="${this._esc(entry.entry_id)}" data-key="${this._esc(entry.key)}">Wiederherstellen</button>` : ""}
         <button class="btn danger" id="delete-entry" data-eid="${this._esc(entry.entry_id)}" data-key="${this._esc(entry.key)}">Loeschen</button>
       </div>
     </aside>`;
@@ -867,18 +1073,30 @@ textarea { width: 100%; min-height: 220px; padding: 12px; resize: vertical; font
     root.querySelector("#include-hidden")?.addEventListener("change", ev => this._setFilter("_includeHidden", ev.target.checked));
     root.querySelector("#group-artist")?.addEventListener("change", ev => this._setFilter("_groupByArtist", ev.target.checked));
     root.querySelector("#hide-unmapped")?.addEventListener("click", () => this._hideUnmapped(this._filterSource));
+    root.querySelector("#dedupe")?.addEventListener("click", () => this._runDedupe());
+    root.querySelector("#merge-mode")?.addEventListener("change", ev => {
+      this._mergeMode = ev.target.checked;
+      if (!this._mergeMode) { this._selection.clear(); this._mergeCanonical = null; }
+      this._render();
+    });
+    root.querySelectorAll(".merge-pick").forEach(box => box.addEventListener("change", ev => {
+      ev.stopPropagation();
+      this._toggleSelect(ev.target.dataset.token, ev.target.checked);
+    }));
+    root.querySelectorAll("[data-merge-target]").forEach(btn => btn.addEventListener("click", () => {
+      this._mergeCanonical = btn.dataset.mergeTarget;
+      this._render();
+    }));
+    root.querySelector("#run-merge")?.addEventListener("click", () => this._runMerge());
+    root.querySelector("#clear-merge")?.addEventListener("click", () => this._clearMerge());
     root.querySelectorAll("[data-sort]").forEach(th => th.addEventListener("click", () => this._toggleSort(th.dataset.sort)));
     root.querySelectorAll(".row").forEach(row => row.addEventListener("click", ev => {
       if (ev.target.closest(".enum-pill")) return;
+      if (ev.target.closest(".merge-pick")) return;
       const found = this._allEntries.find(e => e.entry_id === row.dataset.eid && e.key === row.dataset.key) || null;
       this._selectEntry(found);
     }));
-    root.querySelector("#close-detail")?.addEventListener("click", () => this._selectEntry(null));
-    root.querySelector("#delete-entry")?.addEventListener("click", btn => {
-      const target = btn.currentTarget;
-      const entry = this._allEntries.find(e => e.entry_id === target.dataset.eid && e.key === target.dataset.key);
-      if (entry) this._deleteEntry(entry);
-    });
+    this._wireDrawer();
     root.querySelector("#make-export")?.addEventListener("click", () => this._exportJson());
     root.querySelector("#import-text")?.addEventListener("input", ev => { this._importText = ev.target.value; });
     root.querySelector("#run-import")?.addEventListener("click", () => this._importJson());
@@ -901,6 +1119,7 @@ textarea { width: 100%; min-height: 220px; padding: 12px; resize: vertical; font
       overview: "Stabile Kategorien fuer Titel, Spiele und Aktivitaeten",
       inbox: "Unklassifizierte Eintraege schnell einordnen",
       catalog: "Alle bekannten Entries durchsuchen und pflegen",
+      archive: "Ausgeblendete Eintraege ansehen und wiederherstellen",
       watchers: "Quellen und aktuelle Erkennungen im Blick behalten",
       import: "Kataloge als JSON sichern oder einspielen",
       settings: "Verhalten und Design der Workbench",
@@ -908,7 +1127,7 @@ textarea { width: 100%; min-height: 220px; padding: 12px; resize: vertical; font
   }
 
   _manifestVersion() {
-    return "2.4.1";
+    return "2.5.0";
   }
 
   _typeLabel(type) {
@@ -947,6 +1166,7 @@ textarea { width: 100%; min-height: 220px; padding: 12px; resize: vertical; font
       overview: this._icon("wave"),
       inbox: this._icon("inbox"),
       catalog: this._icon("db"),
+      archive: this._icon("archive"),
       watchers: this._icon("watch"),
       import: this._icon("import"),
       settings: this._icon("settings"),
@@ -959,6 +1179,8 @@ textarea { width: 100%; min-height: 220px; padding: 12px; resize: vertical; font
       wave: "≋",
       inbox: "▤",
       db: "▦",
+      archive: "🗄",
+      merge: "⛙",
       watch: "⌾",
       import: "↕",
       settings: "⚙",

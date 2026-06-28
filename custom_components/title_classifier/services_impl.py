@@ -17,6 +17,7 @@ from .const import (
     MAX_ENUM,
     MIN_ENUM,
     SERVICE_CLEAR_OLD,
+    SERVICE_DEDUPE_CATALOG,
     SERVICE_DELETE_ENTRY,
     SERVICE_IMPORT_ENTRIES,
     SERVICE_IMPORT_LOCAL_STORAGE,
@@ -98,6 +99,18 @@ async def _import_local_storage(hass: HomeAssistant, call: ServiceCall) -> dict:
     )
 
 
+async def _dedupe_catalog(hass: HomeAssistant, call: ServiceCall) -> dict:
+    entry_id = call.data.get(ATTR_ENTRY_ID)
+    dry_run = call.data.get("dry_run", False)
+    runtimes = [require_runtime(hass, entry_id)] if entry_id else all_runtimes(hass)
+    reports = {}
+    for runtime in runtimes:
+        reports[runtime.entry.entry_id] = await runtime.async_dedupe_catalog(
+            dry_run=dry_run
+        )
+    return {"watchers": reports}
+
+
 SERVICES: dict[str, ServiceDef] = {
     SERVICE_SET_ENUM: ServiceDef(
         handler=_set_enum,
@@ -136,6 +149,14 @@ SERVICES: dict[str, ServiceDef] = {
             vol.Optional("category"): vol.In(CATEGORIES),
             vol.Optional("source_entry_id"): cv.string,
             vol.Optional("source_storage_key"): cv.string,
+            vol.Optional("dry_run", default=False): cv.boolean,
+        }),
+        supports_response=SupportsResponse.OPTIONAL,
+    ),
+    SERVICE_DEDUPE_CATALOG: ServiceDef(
+        handler=_dedupe_catalog,
+        schema=vol.Schema({
+            vol.Optional(ATTR_ENTRY_ID): cv.string,
             vol.Optional("dry_run", default=False): cv.boolean,
         }),
         supports_response=SupportsResponse.OPTIONAL,
