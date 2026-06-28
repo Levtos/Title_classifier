@@ -1,5 +1,25 @@
 # Changelog
 
+## 2.5.0 - 2026-06-29
+
+- **Quellen ehrlich (Architektur-Fix):** Der Katalog ist nach `(scope, category)`
+  geteilt — mehrere Watcher derselben Kategorie (z.B. PC + ps5 = `game`) luden
+  dieselben Zeilen, und das Panel hängte ihnen einen erfundenen Watcher-Namen als
+  „Quelle" an. `list_entries`/Statistiken deduplizieren jetzt nach
+  `(scope, category, key)`; die Spalte zeigt **Typ + Plattform** statt Quelle.
+- **1000-Zeilen-Cap entfernt:** Musikkatalog (>1300 Titel) wurde still gekappt,
+  Archiv-Einträge fielen komplett raus. `list_entries` liefert jetzt alles
+  (Limit nur noch optional, max 20000) und ohne Runtime-übergreifende Starvation.
+- **Archiv-Ansicht:** Neuer „Archiv"-Tab für ausgeblendete Einträge inkl.
+  **Wiederherstellen** (`unhide_entry` / `async_unhide`) — Ausblenden war bisher
+  eine Einbahnstraße.
+- **Manuelles Editieren:** Titel umbenennen (`rename_entry`; Ziel existiert ⇒
+  Merge) und Plattform setzen (`set_platform`, pc↔ps5↔switch…) direkt im Drawer.
+- **Merge:** Manueller Merge-Modus (mehrere Einträge ankreuzen, Ziel wählen,
+  zusammenführen) plus Retro-Sweep über den Bestand — Panel-Button „Dubletten
+  zusammenführen" und Service `title_classifier.dedupe_catalog` (mit `dry_run`).
+  Kanonisch überlebt die meistgespielte Variante; enum/Sichtungen aggregieren.
+
 ## 2.3.0 - 2026-06-10
 
 - FLEET-43: Stash-Auto-Enum — Kategorie `stash` bekommt inverse Enum-Semantik:

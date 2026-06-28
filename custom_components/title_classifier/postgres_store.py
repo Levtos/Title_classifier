@@ -421,6 +421,102 @@ class PostgresMapperStore:
             self._entries.pop(key, None)
         self._entries[target_key] = _row_to_entry(row)
 
+    async def async_unhide(self, key: str) -> bool:
+        """Clear ``hidden_at`` for a key (manual restore from the archive)."""
+        row = await self._fetchrow(
+            f"""
+            UPDATE catalog_entry
+               SET hidden_at = NULL, updated_by = $4, updated_at = now()
+             WHERE scope = $1 AND category = $2 AND key = $3
+            RETURNING {_COLUMNS}
+            """,
+            self._scope, self._category, key, self._instance_id,
+        )
+        if row is None:
+            return False
+        self._entries[key] = _row_to_entry(row)
+        return True
+
+    async def async_set_platform(
+        self, key: str, platform: str | None
+    ) -> MapperEntry | None:
+        """Column-scoped platform write (manual pc↔ps5↔switch correction)."""
+        row = await self._fetchrow(
+            f"""
+            UPDATE catalog_entry
+               SET platform = $4, updated_by = $5, updated_at = now()
+             WHERE scope = $1 AND category = $2 AND key = $3
+            RETURNING {_COLUMNS}
+            """,
+            self._scope, self._category, key, platform, self._instance_id,
+        )
+        if row is None:
+            return None
+        entry = _row_to_entry(row)
+        self._entries[key] = entry
+        return entry
+
+    async def async_rename_key(
+        self,
+        old_key: str,
+        new_key: str,
+        *,
+        artist: str | None = None,
+        title: str | None = None,
+    ) -> bool:
+        """Rename an entry's key in place.
+
+        If ``new_key`` already exists it becomes a merge (old folded into new,
+        reusing :meth:`async_merge_keys`). Otherwise the row's key is updated
+        and the optional re-split ``artist``/``title`` columns are refreshed.
+        Returns True when something changed.
+        """
+        old_key = old_key.strip()
+        new_key = new_key.strip()
+        if not new_key or new_key == old_key:
+            return False
+        if old_key not in self._entries:
+            return False
+        existing = await self._fetchrow(
+            "SELECT key FROM catalog_entry "
+            "WHERE scope = $1 AND category = $2 AND key = $3",
+            self._scope, self._category, new_key,
+        )
+        if existing is not None:
+            await self.async_merge_keys(new_key, [old_key])
+            if artist is not None or title is not None:
+                await self._fetchrow(
+                    f"""
+                    UPDATE catalog_entry
+                       SET artist = COALESCE($4, artist),
+                           title  = COALESCE($5, title),
+                           updated_by = $6, updated_at = now()
+                     WHERE scope = $1 AND category = $2 AND key = $3
+                    RETURNING {_COLUMNS}
+                    """,
+                    self._scope, self._category, new_key, artist, title,
+                    self._instance_id,
+                )
+            return True
+        row = await self._fetchrow(
+            f"""
+            UPDATE catalog_entry
+               SET key = $4,
+                   artist = COALESCE($5, artist),
+                   title  = COALESCE($6, title),
+                   updated_by = $7, updated_at = now()
+             WHERE scope = $1 AND category = $2 AND key = $3
+            RETURNING {_COLUMNS}
+            """,
+            self._scope, self._category, old_key, new_key, artist, title,
+            self._instance_id,
+        )
+        if row is None:
+            return False
+        self._entries.pop(old_key, None)
+        self._entries[new_key] = _row_to_entry(row)
+        return True
+
     async def async_hide_unmapped(self) -> int:
         rows = await self._pool.fetch(
             """

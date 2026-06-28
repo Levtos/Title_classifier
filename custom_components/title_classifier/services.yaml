@@ -109,3 +109,25 @@ import_local_storage:
       default: false
       selector:
         boolean:
+
+dedupe_catalog:
+  name: Katalog entdoppeln
+  description: >-
+    Führt vorhandene Dubletten im Katalog zusammen (gleiche Match-Logik wie die
+    automatische Medien-Dedupe: Klammer-Zusätze wie „(Remix)" werden ignoriert).
+    Kanonisch überlebt die meistgespielte Variante; enum/Sichtungen werden
+    aggregiert. Ohne entry_id laufen alle Watcher.
+  fields:
+    entry_id:
+      name: Watcher
+      description: entry_id des Watchers. Leer = alle Watcher.
+      required: false
+      selector:
+        text:
+    dry_run:
+      name: Probelauf
+      description: Nur ermitteln, was zusammengeführt würde — nichts schreiben.
+      required: false
+      default: false
+      selector:
+        boolean:

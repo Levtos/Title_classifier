@@ -7,9 +7,29 @@ different player reports map to the same classifiable key.
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 import tc_runtime as R
+import tc_storage as S
+
+
+class _FakeStore:
+    """Minimal store double exposing the .entries surface dedupe reads."""
+
+    def __init__(self, entries):
+        self.entries = entries
+        self.merged = []
+
+    async def async_merge_keys(self, target_key, source_keys):
+        self.merged.append((target_key, list(source_keys)))
+
+
+def _runtime_with_entries(entries):
+    runtime = R.WatcherRuntime.__new__(R.WatcherRuntime)
+    runtime.store = _FakeStore(entries)
+    return runtime
 
 
 # --------------------------------------------------------------- clean_value
@@ -108,6 +128,38 @@ def test_seen_write_throttle_skips_unchanged_recent_state():
     runtime._last_seen_write_at = R.dt_util.utcnow()
 
     assert runtime._should_skip_seen_write("Artist - Title", signature)
+
+
+def test_duplicate_groups_collapses_paren_variants():
+    plain = "Teddy Swims - Mr. Know It All"
+    remix = "Teddy Swims - Mr. Know It All (DJ Dark Remix)"
+    other = "Daft Punk - Get Lucky"
+    entries = {
+        plain: S.MapperEntry(key=plain, seen_count=5),
+        remix: S.MapperEntry(key=remix, seen_count=2),
+        other: S.MapperEntry(key=other, seen_count=1),
+    }
+    groups = _runtime_with_entries(entries)._duplicate_groups()
+    assert len(groups) == 1
+    assert set(groups[0]) == {plain, remix}
+
+
+def test_dedupe_dry_run_keeps_most_played_canonical():
+    plain = "Teddy Swims - Mr. Know It All"
+    remix = "Teddy Swims - Mr. Know It All (DJ Dark Remix)"
+    entries = {
+        plain: S.MapperEntry(key=plain, seen_count=5),
+        remix: S.MapperEntry(key=remix, seen_count=2),
+    }
+    runtime = _runtime_with_entries(entries)
+    report = asyncio.run(runtime.async_dedupe_catalog(dry_run=True))
+    assert report["groups"] == 1
+    assert report["duplicates"] == 1
+    assert report["merged"] == 0
+    # Most-played variant survives; nothing written on a dry run.
+    assert report["preview"][0]["target"] == plain
+    assert report["preview"][0]["sources"] == [remix]
+    assert runtime.store.merged == []
 
 
 def test_seen_write_throttle_allows_changed_title():
