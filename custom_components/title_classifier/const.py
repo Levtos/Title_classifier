@@ -39,6 +39,19 @@ ENTRY_TYPE_WATCHER = "watcher"
 CONF_HUB_ENTRY_ID = "hub_entry_id"
 HUB_TITLE = "Title Classifier DB"
 
+# v3 watcher axes (FLEET-195/196) — explicit config, never heuristic. media_type/
+# context/signal_type vocabularies live in catalog_v3; these are the entry keys.
+ENTRY_TYPE_WATCHER_V3 = "watcher_v3"
+CONF_MEDIA_TYPE = "media_type"
+CONF_CONTEXT = "context"
+CONF_SIGNAL_TYPE = "signal_type"
+CONF_SOURCE_APP = "source_app"
+CONF_DEFAULT_ACTIVE_ENUM = "default_active_enum"
+CONF_ARTWORK_ENTITY_ID = "artwork_entity_id"
+CONF_ARTWORK_ATTRIBUTE = "artwork_attribute"
+CONF_INACTIVE_VALUES = "inactive_values"
+DEFAULT_ARTWORK_ATTRIBUTE = "entity_picture"
+
 WATCHER_TYPES = ("game", "media", "activity")
 DEFAULT_ARTIST_ATTRIBUTE = "media_artist"
 

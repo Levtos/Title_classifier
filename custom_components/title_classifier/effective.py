@@ -13,8 +13,11 @@ Resolution order (fixed):
      express per-context intent via overrides instead (criterion 8).
   3. Game context override — ``media_type == 'game'`` with an ``enum_override``
      for the active context replaces the value (criterion 7).
-  4. Stash floor — ``context == 'stash'`` with an active title and an otherwise
-     effective 0 floors to 1; a non-zero entry enum wins (criterion 6).
+  4. Active default floor — when active and the effective value is still the
+     default 0, the watcher's configured ``active_default_enum`` applies; a
+     non-zero entry enum always wins. This generalises the stash floor: a stash
+     watcher configures ``active_default_enum = 1`` (criterion 6), normal
+     watchers leave it at 0 (no floor).
 """
 
 from __future__ import annotations
@@ -22,10 +25,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from .catalog_v3 import (
-    CONTEXT_STASH,
     DEFAULT_ENUM,
     NO_SOURCE_APP,
-    STASH_DEFAULT_ACTIVE_ENUM,
     ContextRow,
 )
 
@@ -41,6 +42,7 @@ def resolve_effective_enum(
     is_variant: bool = False,
     parent_enum: int | None = None,
     context_override: int | None = None,
+    active_default_enum: int = DEFAULT_ENUM,
 ) -> int:
     """Compute the effective enum for one active observation.
 
@@ -52,6 +54,8 @@ def resolve_effective_enum(
         is_variant: whether the entry is a child of a master.
         parent_enum: the master's enum (only consulted for music/video variants).
         context_override: ``enum_override`` for the active context (games only).
+        active_default_enum: the watcher's configured floor applied when active
+            and the effective value is still 0 (stash watcher ⇒ 1).
     """
     # 1. Online gate — nothing playing is always 0.
     if not active:
@@ -71,9 +75,9 @@ def resolve_effective_enum(
     if media_type == "game" and context_override is not None:
         enum = context_override
 
-    # 4. Stash floor — active stash title with effective 0 ⇒ 1.
-    if context == CONTEXT_STASH and enum == DEFAULT_ENUM:
-        enum = STASH_DEFAULT_ACTIVE_ENUM
+    # 4. Active default floor — active + still 0 ⇒ watcher's active_default_enum.
+    if enum == DEFAULT_ENUM and active_default_enum != DEFAULT_ENUM:
+        enum = active_default_enum
 
     return enum
 
