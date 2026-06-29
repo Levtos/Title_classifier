@@ -147,3 +147,10 @@ def _load_runtime_with_stubs():
 
 runtime = _load_runtime_with_stubs()
 sys.modules["tc_runtime"] = runtime
+
+# v3 catalog core (FLEET-193): catalog_v3 is HA-free; store_v3 only imports it
+# plus stdlib, so both load directly via the same package loader.
+catalog_v3 = _load("catalog_v3", "catalog_v3.py")
+sys.modules["tc_catalog_v3"] = catalog_v3
+store_v3 = _load("store_v3", "store_v3.py")
+sys.modules["tc_store_v3"] = store_v3

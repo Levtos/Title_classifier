@@ -40,8 +40,11 @@ DATA_POOLS: Final = "db_pools"
 DATA_POOL_LOCK: Final = "db_pool_lock"
 
 NOTIFY_CHANNEL: Final = "catalog_change"
+# v3 media catalog (FLEET-177) — separate prefixed tables, own NOTIFY channel.
+NOTIFY_CHANNEL_V3: Final = "tc_v3_change"
 
 _SCHEMA_PATH: Final = Path(__file__).parent / "schema.sql"
+_SCHEMA_V3_PATH: Final = Path(__file__).parent / "schema_v3.sql"
 
 
 def hub_entries(hass: HomeAssistant) -> list[ConfigEntry]:
@@ -164,12 +167,23 @@ async def async_release_pool(hass: HomeAssistant, dsn: str) -> None:
 
 
 async def async_apply_schema(hass: HomeAssistant, pool: Any) -> None:
-    """Apply schema.sql idempotently (CREATE ... IF NOT EXISTS).
+    """Apply the v2 + v3 schemas idempotently (CREATE ... IF NOT EXISTS).
 
-    The database must already exist; this only creates the table, the NOTIFY
-    function and its trigger. Reading the file is offloaded to the executor.
+    The database must already exist; this only creates tables, NOTIFY functions
+    and triggers. v3 (tc_v3_*) is applied alongside v2 (catalog_entry) — a hard
+    cut that lives next to the untouched legacy table. File reads are offloaded
+    to the executor.
     """
-    sql = await hass.async_add_executor_job(_SCHEMA_PATH.read_text, "utf-8")
+    sql_v2, sql_v3 = await hass.async_add_executor_job(_read_schema_sources)
     async with pool.acquire() as conn:
-        await conn.execute(sql)
-    _LOGGER.debug("Media catalog schema applied")
+        await conn.execute(sql_v2)
+        await conn.execute(sql_v3)
+    _LOGGER.debug("Media catalog schema applied (v2 + v3)")
+
+
+def _read_schema_sources() -> tuple[str, str]:
+    """Read both schema files in the executor (blocking I/O off the loop)."""
+    return (
+        _SCHEMA_PATH.read_text("utf-8"),
+        _SCHEMA_V3_PATH.read_text("utf-8"),
+    )
