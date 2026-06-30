@@ -5,6 +5,7 @@
   "type": "module",
   "description": "React/TypeScript UX for the Title Classifier v3 Home Assistant custom panel.",
   "scripts": {
+    "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "watch": "vite build --watch"
   },
