@@ -21,8 +21,18 @@ from homeassistant.helpers.entity import EntityCategory
 
 from .const import DOMAIN, unique_id
 from ._lookup import runtime_from_hass
-from .const import ATTR_KEY, ATTR_WATCHER_ID, ATTR_WATCHER_NAME, MAX_ENUM, MIN_ENUM, MODULE_ID
+from .const import (
+    ATTR_KEY,
+    ATTR_WATCHER_ID,
+    ATTR_WATCHER_NAME,
+    ENTRY_TYPE_WATCHER_V3,
+    MAX_ENUM,
+    MIN_ENUM,
+    MODULE_ID,
+)
+from .const import CONF_ENTRY_TYPE
 from .runtime import WatcherRuntime
+from .entities_v3 import get_v3_sensors
 
 
 async def async_get_entities(
@@ -31,6 +41,9 @@ async def async_get_entities(
     runtime = runtime_from_hass(hass, entry.entry_id)
     if runtime is None:
         return []
+    # v3 watchers expose only sensors (effective enum / raw / catalog).
+    if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_WATCHER_V3:
+        return get_v3_sensors(runtime) if platform == Platform.SENSOR else []
     if platform == Platform.SENSOR:
         return [
             TitleClassifierEnumSensor(runtime),

@@ -56,6 +56,8 @@ from .websockets_v3 import WEBSOCKETS_V3  # re-export
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.NUMBER, Platform.BUTTON]
+# v3 watchers expose only sensors (effective enum / raw / catalog).
+V3_PLATFORMS: list[Platform] = [Platform.SENSOR]
 
 __all__ = [
     "SERVICES",
@@ -230,6 +232,7 @@ async def _async_setup_watcher_v3(hass: HomeAssistant, entry: ConfigEntry) -> bo
         dsn=dsn,
         status="ready",
     )
+    await hass.config_entries.async_forward_entry_setups(entry, V3_PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_reload_on_options))
     return True
 
@@ -257,13 +260,11 @@ def _attach_watchers_to_hub(hass: HomeAssistant, hub: ConfigEntry) -> None:
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    # Hub and v3 watchers forward no platforms (v3 sensors land in Phase 6).
-    has_platforms = entry.data.get(CONF_ENTRY_TYPE) not in (
-        ENTRY_TYPE_HUB,
-        ENTRY_TYPE_WATCHER_V3,
-    )
+    entry_type = entry.data.get(CONF_ENTRY_TYPE)
     unload_ok = True
-    if has_platforms:
+    if entry_type == ENTRY_TYPE_WATCHER_V3:
+        unload_ok = await hass.config_entries.async_unload_platforms(entry, V3_PLATFORMS)
+    elif entry_type != ENTRY_TYPE_HUB:
         unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     bucket = hass.data.get(DOMAIN, {}).get(DATA_ENTRIES, {}).pop(entry.entry_id, None)
     runtime = bucket.get("runtime") if bucket else None
