@@ -162,5 +162,7 @@ api_v3 = _load("api_v3", "api_v3.py")
 sys.modules["tc_api_v3"] = api_v3
 io_v3 = _load("io_v3", "io_v3.py")
 sys.modules["tc_io_v3"] = io_v3
+runtime_select = _load("runtime_select", "runtime_select.py")
+sys.modules["tc_runtime_select"] = runtime_select
 artwork_v3 = _load("artwork_v3", "artwork_v3.py")
 sys.modules["tc_artwork_v3"] = artwork_v3
