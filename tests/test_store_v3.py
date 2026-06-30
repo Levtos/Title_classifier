@@ -607,6 +607,35 @@ async def test_import_roundtrip_preserves_enum_and_parent():
 
 
 @_run
+async def test_set_enum_persists_and_view_reflects_for_active_standalone_music():
+    """Regression for the panel 'enum springs back' report: set_enum on a
+    standalone music/title entry must persist (enum=1) and list_entries must
+    show enum=1 / effective_enum=1 while active. Proves the backend is correct."""
+    import tc_api_v3 as A
+    import tc_effective_v3 as E
+
+    store = _store()
+    e = await store.async_seen(
+        media_type="music", signal_type="title",
+        key="Marten Lou & Luch - Hideaway", context="homepod",
+    )
+    updated = await store.async_set_enum(e.id, 1)
+    assert updated.enum == 1
+    assert updated.parent_id is None  # standalone — no inheritance
+
+    effective = E.resolve_effective_enum(
+        media_type="music", context="homepod", active=True,
+        base_enum=updated.enum, is_variant=False, parent_enum=None,
+        context_override=None, active_default_enum=0,  # homepod ⇒ no floor
+    )
+    assert effective == 1
+    rows = A.select_and_view(store.entries, {e.id: (effective, "homepod", "")})
+    row = next(r for r in rows if r["id"] == e.id)
+    assert row["enum"] == 1
+    assert row["effective_enum"] == 1
+
+
+@_run
 async def test_import_rejects_invalid_records():
     store = _store()
     report = await store.async_import([
