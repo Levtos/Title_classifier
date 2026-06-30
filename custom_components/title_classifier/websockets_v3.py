@@ -52,6 +52,7 @@ def _source_payload(rt) -> dict[str, Any]:
         "current_key": rt.current_key,
         "current_enum": rt.current_enum,
         "current_entry_id": rt.current_entry_id,
+        "current_artwork": rt.current_artwork,
         "entry_count": total,
         "unmapped_count": unmapped,
     }

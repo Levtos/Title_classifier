@@ -160,3 +160,5 @@ feeder_v3 = _load("feeder_v3", "feeder_v3.py")
 sys.modules["tc_feeder_v3"] = feeder_v3
 api_v3 = _load("api_v3", "api_v3.py")
 sys.modules["tc_api_v3"] = api_v3
+artwork_v3 = _load("artwork_v3", "artwork_v3.py")
+sys.modules["tc_artwork_v3"] = artwork_v3

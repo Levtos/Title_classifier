@@ -68,6 +68,7 @@ class _TC3Base(SensorEntity):
             "context": rt.context,
             "signal_type": rt.signal_type,
             "source_app": rt.source_app or None,
+            "artwork": rt.current_artwork,
         }
 
 
