@@ -2,15 +2,21 @@
 // websockets_v3.py). Used from PR2 onwards; defined here so the scaffold and the
 // typed API client share one source of truth.
 
-export type MediaType = "music" | "game" | "video";
-export type Context =
-  | "homepod"
-  | "pc"
-  | "ps5"
-  | "switch"
-  | "stash"
-  | "apple_tv";
-export type SignalType = "title" | "app";
+export const MEDIA_TYPES = ["music", "game", "video"] as const;
+export type MediaType = (typeof MEDIA_TYPES)[number];
+
+export const CONTEXTS = [
+  "homepod",
+  "pc",
+  "ps5",
+  "switch",
+  "stash",
+  "apple_tv",
+] as const;
+export type Context = (typeof CONTEXTS)[number];
+
+export const SIGNAL_TYPES = ["title", "app"] as const;
+export type SignalType = (typeof SIGNAL_TYPES)[number];
 
 export interface V3Source {
   entry_id: string;
