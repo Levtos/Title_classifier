@@ -15,10 +15,13 @@ from homeassistant.const import CONF_NAME
 from homeassistant.core import Event, HomeAssistant, State, callback
 from homeassistant.helpers.event import async_track_state_change_event
 
+from . import artwork_v3 as artwork
 from . import feeder_v3 as feeder
 from .catalog_v3 import DEFAULT_ENUM, NO_SOURCE_APP
 from .const import (
     CONF_ARTIST_ATTRIBUTE,
+    CONF_ARTWORK_ATTRIBUTE,
+    CONF_ARTWORK_ENTITY_ID,
     CONF_CONTEXT,
     CONF_DEFAULT_ACTIVE_ENUM,
     CONF_INACTIVE_VALUES,
@@ -28,6 +31,7 @@ from .const import (
     CONF_SIGNAL_TYPE,
     CONF_SOURCE_APP,
     CONF_SOURCE_ENTITY,
+    DEFAULT_ARTWORK_ATTRIBUTE,
     DEFAULT_SCOPE,
 )
 from .effective import find_context_override, resolve_effective_enum
@@ -46,6 +50,7 @@ class WatcherRuntimeV3:
         self.current_key: str | None = None
         self.current_enum: int | None = None
         self.current_entry_id: str | None = None
+        self.current_artwork: str | None = None
         self._online: bool = True
         self._remove_listener: Callable[[], None] | None = None
         self._listeners: list[Callable[[], None]] = []
@@ -97,6 +102,14 @@ class WatcherRuntimeV3:
     @property
     def artist_attribute(self) -> str | None:
         return self.entry.data.get(CONF_ARTIST_ATTRIBUTE) or None
+
+    @property
+    def artwork_entity_id(self) -> str | None:
+        return self.entry.data.get(CONF_ARTWORK_ENTITY_ID) or None
+
+    @property
+    def artwork_attribute(self) -> str:
+        return self.entry.data.get(CONF_ARTWORK_ATTRIBUTE) or DEFAULT_ARTWORK_ATTRIBUTE
 
     @property
     def online(self) -> bool:
@@ -190,7 +203,20 @@ class WatcherRuntimeV3:
         self.current_key = entry.key
         self.current_entry_id = entry.id
         self.current_enum = await self._effective_for(entry)
+        self.current_artwork = self._resolve_artwork(attrs)
         self.notify_listeners()
+
+    def _resolve_artwork(self, source_attrs: dict) -> str | None:
+        """Live artwork URL for the current source (never stored in the DB)."""
+        art_attrs = None
+        if self.artwork_entity_id:
+            state = self.hass.states.get(self.artwork_entity_id)
+            art_attrs = dict(state.attributes) if state is not None else None
+        return artwork.resolve_artwork_url(
+            source_attrs,
+            artwork_attribute=self.artwork_attribute,
+            artwork_attrs=art_attrs,
+        )
 
     async def async_recompute_current(self) -> None:
         """Re-resolve the effective enum for the current entry after a catalog
@@ -206,10 +232,15 @@ class WatcherRuntimeV3:
             self.notify_listeners()
 
     def _set_inactive(self) -> None:
-        changed = self.current_key is not None or self.current_enum != DEFAULT_ENUM
+        changed = (
+            self.current_key is not None
+            or self.current_enum != DEFAULT_ENUM
+            or self.current_artwork is not None
+        )
         self.current_key = None
         self.current_entry_id = None
         self.current_enum = DEFAULT_ENUM
+        self.current_artwork = None
         if changed:
             self.notify_listeners()
 
