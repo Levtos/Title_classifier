@@ -45,6 +45,7 @@ from .notify import async_ensure_listener, async_release_listener
 from .entities import async_get_entities  # re-export
 from .flow import ConfigFlowHelper, OptionsFlowHelper  # re-export
 from .panel import async_register_panel  # re-export
+from .panel import async_register_v3_panel  # re-export
 from .postgres_store import PostgresMapperStore
 from .runtime import WatcherRuntime
 from .store_v3 import CatalogStoreV3
@@ -69,6 +70,7 @@ __all__ = [
     "async_unload_entry",
     "async_get_entities",
     "async_register_panel",
+    "async_register_v3_panel",
 ]
 
 
@@ -233,6 +235,7 @@ async def _async_setup_watcher_v3(hass: HomeAssistant, entry: ConfigEntry) -> bo
         status="ready",
     )
     await hass.config_entries.async_forward_entry_setups(entry, V3_PLATFORMS)
+    await async_register_v3_panel(hass)
     entry.async_on_unload(entry.add_update_listener(_async_reload_on_options))
     return True
 
