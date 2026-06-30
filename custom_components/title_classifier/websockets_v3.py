@@ -17,7 +17,7 @@ from homeassistant.helpers import config_validation as cv
 
 from . import api_v3
 from ._lookup import all_v3_runtimes, v3_runtime_for_entry
-from .catalog_v3 import CONTEXTS, MAX_ENUM, MIN_ENUM, ParentGuardError
+from .catalog_v3 import CONTEXTS, MAX_ENUM, MEDIA_TYPES, MIN_ENUM, ParentGuardError
 from .const import MODULE_ID, websocket_type
 
 
@@ -232,6 +232,139 @@ async def ws_v3_delete_entry(hass, connection, msg) -> None:
     connection.send_result(msg["id"], {"deleted": deleted})
 
 
+@websocket_api.websocket_command({
+    vol.Required("type"): _wt("rename_entry"),
+    vol.Required("entry_id"): cv.string,
+    vol.Required("new_key"): cv.string,
+})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_v3_rename_entry(hass, connection, msg) -> None:
+    rt = v3_runtime_for_entry(hass, msg["entry_id"])
+    if rt is None:
+        connection.send_error(msg["id"], "not_found", "no v3 watcher available")
+        return
+    status, payload = await rt.store.async_rename(msg["entry_id"], msg["new_key"])
+    if status == "conflict":
+        connection.send_error(msg["id"], "conflict", f"target identity exists: {payload}")
+        return
+    if status != "ok":
+        connection.send_error(msg["id"], status, f"rename {status}")
+        return
+    await _after_mutation(hass, msg["entry_id"])
+    connection.send_result(msg["id"], {"ok": True, "key": payload.key})
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): _wt("set_media_type"),
+    vol.Required("entry_id"): cv.string,
+    vol.Required("media_type"): vol.In(MEDIA_TYPES),
+})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_v3_set_media_type(hass, connection, msg) -> None:
+    """Reclassify an entry to a new media_type (identity move, not a column set)."""
+    rt = v3_runtime_for_entry(hass, msg["entry_id"])
+    if rt is None:
+        connection.send_error(msg["id"], "not_found", "no v3 watcher available")
+        return
+    status, payload = await rt.store.async_reclassify_media_type(
+        msg["entry_id"], msg["media_type"]
+    )
+    if status == "conflict":
+        connection.send_error(
+            msg["id"], "conflict", f"target identity exists: {payload}"
+        )
+        return
+    if status in ("has_parent", "has_children"):
+        connection.send_error(
+            msg["id"], "has_relations",
+            f"cannot reclassify ({status}) — detach variants first",
+        )
+        return
+    if status != "ok":
+        connection.send_error(msg["id"], status, f"reclassify {status}")
+        return
+    await _after_mutation(hass, msg["entry_id"])
+    connection.send_result(msg["id"], {"ok": True, "media_type": payload.media_type})
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): _wt("set_context"),
+    vol.Required("entry_id"): cv.string,
+    vol.Required("context"): vol.In(CONTEXTS),
+    vol.Required("new_context"): vol.In(CONTEXTS),
+    vol.Optional("source_app", default=""): cv.string,
+    vol.Optional("new_source_app", default=""): cv.string,
+})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_v3_set_context(hass, connection, msg) -> None:
+    rt = v3_runtime_for_entry(hass, msg["entry_id"])
+    if rt is None:
+        connection.send_error(msg["id"], "not_found", "no v3 watcher available")
+        return
+    status, payload = await rt.store.async_move_context(
+        msg["entry_id"], msg["context"], msg["new_context"],
+        source_app=msg.get("source_app", ""),
+        new_source_app=msg.get("new_source_app", ""),
+    )
+    if status == "context_not_allowed":
+        connection.send_error(
+            msg["id"], "context_not_allowed",
+            "target context not allowed for this media_type",
+        )
+        return
+    if status not in ("ok", "merged"):
+        connection.send_error(msg["id"], status, f"set_context {status}")
+        return
+    await _after_mutation(hass, msg["entry_id"])
+    connection.send_result(msg["id"], {"ok": True, "result": status, "info": payload})
+
+
+def _any_v3_store(hass):
+    runtimes = all_v3_runtimes(hass)
+    return runtimes[0].store if runtimes else None
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): _wt("export_entries"),
+    vol.Optional("media_type"): vol.In(MEDIA_TYPES),
+    vol.Optional("include_telemetry", default=True): bool,
+})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_v3_export_entries(hass, connection, msg) -> None:
+    store = _any_v3_store(hass)
+    if store is None:
+        connection.send_error(msg["id"], "not_found", "no v3 watcher available")
+        return
+    media_types = (msg["media_type"],) if msg.get("media_type") else None
+    payload = await store.async_export(
+        media_types, include_telemetry=msg.get("include_telemetry", True)
+    )
+    connection.send_result(msg["id"], payload)
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): _wt("import_entries"),
+    vol.Required("entries"): vol.All(cv.ensure_list, [dict]),
+})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_v3_import_entries(hass, connection, msg) -> None:
+    store = _any_v3_store(hass)
+    if store is None:
+        connection.send_error(msg["id"], "not_found", "no v3 watcher available")
+        return
+    report = await store.async_import(msg["entries"])
+    for rt in all_v3_runtimes(hass):
+        await rt.store.async_load(media_types=(rt.media_type,))
+        await rt.async_recompute_current()
+        rt.notify_listeners()
+    connection.send_result(msg["id"], report)
+
+
 WEBSOCKETS_V3 = [
     ws_v3_list_sources,
     ws_v3_list_entries,
@@ -241,4 +374,9 @@ WEBSOCKETS_V3 = [
     ws_v3_set_context_override,
     ws_v3_set_hidden,
     ws_v3_delete_entry,
+    ws_v3_rename_entry,
+    ws_v3_set_media_type,
+    ws_v3_set_context,
+    ws_v3_export_entries,
+    ws_v3_import_entries,
 ]

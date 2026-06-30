@@ -75,10 +75,74 @@ class FakePool:
         return row
 
     # -- asyncpg surface ---------------------------------------------------
+    def _import_upsert(self, args):
+        (rid, scope, mt, st, nkey, key, enum, hidden_bool, seen, by) = args
+        identity = (scope, mt, st, nkey)
+        existing_id = self.identity.get(identity)
+        if existing_id is not None:
+            row = self.catalog[existing_id]
+            row["enum"] = enum
+            row["key"] = key
+            row["hidden_at"] = _now() if hidden_bool else None
+            row["seen_count"] = max(row["seen_count"], seen)
+            row["updated_by"] = by
+            return {"id": existing_id}
+        row = {k: None for k in _CAT_KEYS}
+        row.update(
+            id=rid, scope=scope, media_type=mt, signal_type=st, normalized_key=nkey,
+            key=key, enum=enum, parent_id=None,
+            hidden_at=_now() if hidden_bool else None,
+            first_seen=_now(), last_seen=_now(), seen_count=seen,
+            updated_by=by, updated_at=_now(),
+        )
+        self.catalog[rid] = row
+        self.identity[identity] = rid
+        return {"id": rid}
+
+    def _find_identity(self, args):
+        scope, mt, st, nkey = args
+        eid = self.identity.get((scope, mt, st, nkey))
+        return self.catalog.get(eid) if eid else None
+
+    def _reindex(self, row, new_identity):
+        old = (row["scope"], row["media_type"], row["signal_type"], row["normalized_key"])
+        self.identity.pop(old, None)
+        self.identity[new_identity] = row["id"]
+
     async def fetchrow(self, query, *args):
         q = query
+        if "INSERT INTO tc_v3_catalog" in q and "GREATEST(tc_v3_catalog.seen_count" in q:
+            return self._import_upsert(args)
         if "INSERT INTO tc_v3_catalog" in q:
             return self._new_catalog_row(args)
+        if "AND media_type = $2 AND signal_type = $3 AND normalized_key = $4" in q:
+            return self._find_identity(args)
+        if "FROM tc_v3_entry_context WHERE entry_id = $1 AND context = $2 AND source_app = $3" in q:
+            return self.contexts.get((args[0], args[1], args[2]))
+        if "UPDATE tc_v3_catalog" in q and "normalized_key = $3" in q:
+            row = self.catalog.get(args[0])
+            if row is None:
+                return None
+            self._reindex(row, (row["scope"], row["media_type"], row["signal_type"], args[2]))
+            row["key"] = args[1]
+            row["normalized_key"] = args[2]
+            row["updated_by"] = args[3]
+            return row
+        if "UPDATE tc_v3_catalog" in q and "SET key = $2, updated_by = $3" in q:
+            row = self.catalog.get(args[0])
+            if row is None:
+                return None
+            row["key"] = args[1]
+            row["updated_by"] = args[2]
+            return row
+        if "UPDATE tc_v3_catalog" in q and "SET media_type = $2" in q:
+            row = self.catalog.get(args[0])
+            if row is None:
+                return None
+            self._reindex(row, (row["scope"], args[1], row["signal_type"], row["normalized_key"]))
+            row["media_type"] = args[1]
+            row["updated_by"] = args[2]
+            return row
         if "INSERT INTO tc_v3_entry_context" in q:  # set_context_override (RETURNING)
             entry_id, ctx, app, override, watcher = args
             key = (entry_id, ctx, app)
@@ -144,7 +208,22 @@ class FakePool:
         raise AssertionError(f"unexpected fetch query: {query[:60]}")
 
     async def execute(self, query, *args):
-        if "INSERT INTO tc_v3_entry_context" in query:  # async_seen observation
+        q = query
+        if "INSERT INTO tc_v3_entry_context" in q and "GREATEST(tc_v3_entry_context.seen_count" in q:
+            entry_id, ctx, app, override, seen, by = args
+            key = (entry_id, ctx, app)
+            row = self.contexts.get(key)
+            if row is None:
+                self.contexts[key] = {
+                    "entry_id": entry_id, "context": ctx, "source_app": app,
+                    "enum_override": override, "first_seen": _now(),
+                    "last_seen": _now(), "seen_count": seen, "last_watcher_id": by,
+                }
+            else:
+                row["enum_override"] = override
+                row["seen_count"] = max(row["seen_count"], seen)
+            return
+        if "INSERT INTO tc_v3_entry_context" in q:  # async_seen observation
             entry_id, ctx, app, watcher = args
             key = (entry_id, ctx, app)
             row = self.contexts.get(key)
@@ -159,7 +238,27 @@ class FakePool:
                 row["last_seen"] = _now()
                 row["last_watcher_id"] = watcher
             return
-        raise AssertionError(f"unexpected execute query: {query[:60]}")
+        if "DELETE FROM tc_v3_entry_context" in q:
+            self.contexts.pop((args[0], args[1], args[2]), None)
+            return
+        if "UPDATE tc_v3_entry_context SET context = $4" in q:
+            entry_id, context, app, new_context, new_app = args
+            row = self.contexts.pop((entry_id, context, app), None)
+            if row is not None:
+                row["context"] = new_context
+                row["source_app"] = new_app
+                self.contexts[(entry_id, new_context, new_app)] = row
+            return
+        if "UPDATE tc_v3_entry_context" in q and "SET seen_count = $4" in q:
+            entry_id, new_context, new_app, seen, first, last, override = args
+            row = self.contexts.get((entry_id, new_context, new_app))
+            if row is not None:
+                row["seen_count"] = seen
+                row["first_seen"] = first
+                row["last_seen"] = last
+                row["enum_override"] = override
+            return
+        raise AssertionError(f"unexpected execute query: {q[:60]}")
 
 
 def _store():
@@ -333,3 +432,186 @@ async def test_async_load_populates_cache():
     assert len(fresh.entries) == 2
     await fresh.async_load(media_types=("game",))
     assert {e.media_type for e in fresh.entries.values()} == {"game"}
+
+
+# ---------------------------------------------------------------- rename
+
+
+@_run
+async def test_rename_changes_key_and_normalized():
+    store = _store()
+    e = await store.async_seen(
+        media_type="game", signal_type="title", key="Astro Bot", context="ps5"
+    )
+    status, entry = await store.async_rename(e.id, "Astro Bot 2")
+    assert status == "ok"
+    assert entry.key == "Astro Bot 2"
+    assert entry.normalized_key == "astro bot 2"
+
+
+@_run
+async def test_rename_conflict_with_existing_identity():
+    store = _store()
+    a = await store.async_seen(
+        media_type="game", signal_type="title", key="Game A", context="pc"
+    )
+    b = await store.async_seen(
+        media_type="game", signal_type="title", key="Game B", context="pc"
+    )
+    status, info = await store.async_rename(b.id, "Game A")
+    assert status == "conflict"
+    assert info == a.id
+
+
+# ------------------------------------------------- reclassify (set_media_type)
+
+
+@_run
+async def test_reclassify_media_type_ok():
+    store = _store()
+    e = await store.async_seen(
+        media_type="game", signal_type="title", key="X", context="pc"
+    )
+    status, entry = await store.async_reclassify_media_type(e.id, "video")
+    assert status == "ok"
+    assert entry.media_type == "video"
+    # pc is allowed for video → context kept.
+    assert {c.context for c in await store.async_contexts_for(e.id)} == {"pc"}
+
+
+@_run
+async def test_reclassify_prunes_disallowed_context():
+    store = _store()
+    e = await store.async_seen(
+        media_type="game", signal_type="title", key="Y", context="ps5"
+    )
+    status, _ = await store.async_reclassify_media_type(e.id, "video")
+    assert status == "ok"
+    # ps5 cannot carry video → context dropped.
+    assert await store.async_contexts_for(e.id) == []
+
+
+@_run
+async def test_reclassify_conflict():
+    store = _store()
+    g = await store.async_seen(
+        media_type="game", signal_type="title", key="Dup", context="pc"
+    )
+    v = await store.async_seen(
+        media_type="video", signal_type="title", key="Dup", context="pc"
+    )
+    status, info = await store.async_reclassify_media_type(g.id, "video")
+    assert status == "conflict"
+    assert info == v.id
+
+
+@_run
+async def test_reclassify_blocked_for_parent_and_child():
+    store = _store()
+    master = await store.async_seen(
+        media_type="music", signal_type="title", key="M", context="homepod"
+    )
+    variant = await store.async_seen(
+        media_type="music", signal_type="title", key="V", context="homepod"
+    )
+    await store.async_set_parent(variant.id, master.id)
+    assert (await store.async_reclassify_media_type(master.id, "video"))[0] == "has_children"
+    assert (await store.async_reclassify_media_type(variant.id, "video"))[0] == "has_parent"
+
+
+# ----------------------------------------------------- move context (set_context)
+
+
+@_run
+async def test_set_context_move_simple():
+    store = _store()
+    e = await store.async_seen(
+        media_type="game", signal_type="title", key="G", context="pc"
+    )
+    status, _ = await store.async_move_context(e.id, "pc", "ps5")
+    assert status == "ok"
+    assert {c.context for c in await store.async_contexts_for(e.id)} == {"ps5"}
+
+
+@_run
+async def test_set_context_not_allowed():
+    store = _store()
+    e = await store.async_seen(
+        media_type="music", signal_type="title", key="Track", context="homepod"
+    )
+    status, _ = await store.async_move_context(e.id, "homepod", "ps5")
+    assert status == "context_not_allowed"
+
+
+@_run
+async def test_set_context_merge_existing_target():
+    store = _store()
+    e = await store.async_seen(
+        media_type="game", signal_type="title", key="G2", context="pc"
+    )
+    await store.async_set_context_override(e.id, "ps5", 5)
+    await store.async_seen(
+        media_type="game", signal_type="title", key="G2", context="ps5"
+    )
+    status, info = await store.async_move_context(e.id, "pc", "ps5")
+    assert status == "merged"
+    ctxs = {c.context: c for c in await store.async_contexts_for(e.id)}
+    assert set(ctxs) == {"ps5"}  # pc merged away
+    assert ctxs["ps5"].enum_override == 5  # target override kept (source had none)
+
+
+# ------------------------------------------------------------ export / import
+
+
+@_run
+async def test_export_is_image_free_with_parent_key():
+    store = _store()
+    master = await store.async_seen(
+        media_type="music", signal_type="title", key="Master", context="homepod"
+    )
+    variant = await store.async_seen(
+        media_type="music", signal_type="title", key="Var", context="homepod"
+    )
+    await store.async_set_parent(variant.id, master.id)
+    payload = await store.async_export()
+    blob = repr(payload)
+    for bad in ("cover_url", "cover_source", "artwork", "image", "entity_picture"):
+        assert bad not in blob
+    recs = {r["key"]: r for r in payload["entries"]}
+    assert recs["Var"]["parent_key"] == "master"
+    assert recs["Master"]["parent_key"] is None
+
+
+@_run
+async def test_import_roundtrip_preserves_enum_and_parent():
+    store = _store()
+    master = await store.async_seen(
+        media_type="music", signal_type="title", key="Mm", context="homepod"
+    )
+    await store.async_set_enum(master.id, 4)
+    variant = await store.async_seen(
+        media_type="music", signal_type="title", key="Vv", context="homepod"
+    )
+    await store.async_set_parent(variant.id, master.id)
+    payload = await store.async_export()
+
+    fresh = S.CatalogStoreV3(FakePool(), scope="default", instance_id="imp")
+    report = await fresh.async_import(payload["entries"])
+    assert report["imported"] == 2
+    assert report["rejected"] == 0
+    assert report["parent_errors"] == []
+    await fresh.async_load()
+    by_key = {e.key: e for e in fresh.entries.values()}
+    assert by_key["Mm"].enum == 4
+    assert by_key["Vv"].parent_id == by_key["Mm"].id
+
+
+@_run
+async def test_import_rejects_invalid_records():
+    store = _store()
+    report = await store.async_import([
+        {"key": "Bad", "media_type": "tv", "signal_type": "title"},
+        {"key": "Img", "media_type": "music", "signal_type": "title", "cover_url": "http://x"},
+    ])
+    assert report["imported"] == 0
+    assert report["rejected"] == 2
