@@ -18,12 +18,14 @@ from .const import (
     CONF_CATEGORY,
     CONF_ENTRY_TYPE,
     CONF_HUB_ENTRY_ID,
+    CONF_MEDIA_TYPE,
     CONF_PLATFORM,
     CONF_SCOPE,
     CONF_WATCHER_TYPE,
     DEFAULT_SCOPE,
     ENTRY_TYPE_HUB,
     ENTRY_TYPE_WATCHER,
+    ENTRY_TYPE_WATCHER_V3,
     MODULE_ID,
     WATCHER_TYPE_TO_CATEGORY,
     service_name,
@@ -45,6 +47,8 @@ from .flow import ConfigFlowHelper, OptionsFlowHelper  # re-export
 from .panel import async_register_panel  # re-export
 from .postgres_store import PostgresMapperStore
 from .runtime import WatcherRuntime
+from .store_v3 import CatalogStoreV3
+from .runtime_v3 import WatcherRuntimeV3
 from .services_impl import SERVICES  # re-export
 from .websockets_impl import WEBSOCKETS  # re-export
 
@@ -88,8 +92,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             DATA_WEBSOCKETS_REGISTERED: False,
         },
     )
-    if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_HUB:
+    entry_type = entry.data.get(CONF_ENTRY_TYPE)
+    if entry_type == ENTRY_TYPE_HUB:
         return await _async_setup_hub(hass, entry)
+    if entry_type == ENTRY_TYPE_WATCHER_V3:
+        return await _async_setup_watcher_v3(hass, entry)
     return await _async_setup_watcher(hass, entry)
 
 
@@ -174,6 +181,58 @@ async def _async_setup_watcher(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
+async def _async_setup_watcher_v3(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Set up a v3 watcher — an observer feeding the shared v3 catalog.
+
+    No HA entities yet (sensors arrive in Phase 6); the runtime only writes
+    sightings and computes the effective enum. Shares the hub's pool/listener.
+    """
+    hass.data[DOMAIN][DATA_ENTRIES][entry.entry_id] = {
+        "module_id": MODULE_ID,
+        "status": "loading",
+    }
+    db = resolve_db_data(hass, entry)
+    if db is None:
+        hass.data[DOMAIN][DATA_ENTRIES].pop(entry.entry_id, None)
+        raise ConfigEntryError(
+            "Keine Datenbank-Verbindung. Lege zuerst den „Title Classifier DB\"-"
+            "Hub an (LXC 108) oder konfiguriere den Watcher neu."
+        )
+
+    dsn = build_dsn(db)
+    inst = await instance_id.async_get(hass)
+    try:
+        pool = await async_get_pool(hass, dsn)
+        await async_ensure_listener(hass, dsn, inst)
+    except Exception as err:  # asyncpg connection/OS errors → retry later
+        hass.data[DOMAIN][DATA_ENTRIES].pop(entry.entry_id, None)
+        await async_release_pool(hass, dsn)
+        raise ConfigEntryNotReady(f"Medien-Katalog-DB nicht erreichbar: {err}") from err
+
+    store = CatalogStoreV3(
+        pool, scope=entry.data.get(CONF_SCOPE, DEFAULT_SCOPE), instance_id=inst
+    )
+    runtime = WatcherRuntimeV3(hass, entry, store)
+    try:
+        await runtime.async_setup()
+    except Exception:
+        hass.data[DOMAIN][DATA_ENTRIES].pop(entry.entry_id, None)
+        await async_release_listener(hass, dsn)
+        await async_release_pool(hass, dsn)
+        raise
+
+    bucket = hass.data[DOMAIN][DATA_ENTRIES].setdefault(entry.entry_id, {})
+    bucket.update(
+        module_id=MODULE_ID,
+        entry_type=ENTRY_TYPE_WATCHER_V3,
+        runtime=runtime,
+        dsn=dsn,
+        status="ready",
+    )
+    entry.async_on_unload(entry.add_update_listener(_async_reload_on_options))
+    return True
+
+
 def _attach_watchers_to_hub(hass: HomeAssistant, hub: ConfigEntry) -> None:
     """Point every watcher at the hub and strip any embedded legacy DB fields.
 
@@ -187,7 +246,8 @@ def _attach_watchers_to_hub(hass: HomeAssistant, hub: ConfigEntry) -> None:
         if d.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_HUB:
             continue
         new = {k: v for k, v in d.items() if k not in db_keys}
-        new[CONF_ENTRY_TYPE] = ENTRY_TYPE_WATCHER
+        # Preserve a v3 watcher's type; only legacy/unset entries become v2.
+        new[CONF_ENTRY_TYPE] = d.get(CONF_ENTRY_TYPE) or ENTRY_TYPE_WATCHER
         new[CONF_HUB_ENTRY_ID] = hub.entry_id
         if new != dict(d):
             hass.config_entries.async_update_entry(entry, data=new)
@@ -196,9 +256,13 @@ def _attach_watchers_to_hub(hass: HomeAssistant, hub: ConfigEntry) -> None:
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    is_hub = entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_HUB
+    # Hub and v3 watchers forward no platforms (v3 sensors land in Phase 6).
+    has_platforms = entry.data.get(CONF_ENTRY_TYPE) not in (
+        ENTRY_TYPE_HUB,
+        ENTRY_TYPE_WATCHER_V3,
+    )
     unload_ok = True
-    if not is_hub:
+    if has_platforms:
         unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     bucket = hass.data.get(DOMAIN, {}).get(DATA_ENTRIES, {}).pop(entry.entry_id, None)
     runtime = bucket.get("runtime") if bucket else None

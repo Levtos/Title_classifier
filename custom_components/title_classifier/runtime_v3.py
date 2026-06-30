@@ -1,0 +1,229 @@
+"""WatcherRuntimeV3 — HA-bound shell around the pure v3 feeder + resolver.
+
+A v3 watcher is an observer: it reads its explicitly-configured axes, writes
+sightings into the shared v3 catalog (store_v3) and exposes the *effective* enum
+(effective.py). It owns no catalog rows. All decision logic lives in the pure
+modules; this class only wires HA state events and the store.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import CONF_NAME
+from homeassistant.core import Event, HomeAssistant, State, callback
+from homeassistant.helpers.event import async_track_state_change_event
+
+from . import feeder_v3 as feeder
+from .catalog_v3 import DEFAULT_ENUM, NO_SOURCE_APP
+from .const import (
+    CONF_ARTIST_ATTRIBUTE,
+    CONF_CONTEXT,
+    CONF_DEFAULT_ACTIVE_ENUM,
+    CONF_INACTIVE_VALUES,
+    CONF_MEDIA_TYPE,
+    CONF_ONLINE_ENTITY,
+    CONF_SCOPE,
+    CONF_SIGNAL_TYPE,
+    CONF_SOURCE_APP,
+    CONF_SOURCE_ENTITY,
+    DEFAULT_SCOPE,
+)
+from .effective import find_context_override, resolve_effective_enum
+from .store_v3 import CatalogStoreV3
+
+
+class WatcherRuntimeV3:
+    """Runtime state for one v3 watcher config entry."""
+
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry, store: CatalogStoreV3
+    ) -> None:
+        self.hass = hass
+        self.entry = entry
+        self.store = store
+        self.current_key: str | None = None
+        self.current_enum: int | None = None
+        self.current_entry_id: str | None = None
+        self._online: bool = True
+        self._remove_listener: Callable[[], None] | None = None
+        self._listeners: list[Callable[[], None]] = []
+        self._inactive = feeder.build_inactive_values(
+            entry.data.get(CONF_INACTIVE_VALUES)
+        )
+
+    # ------------------------------------------------------------- config
+
+    @property
+    def name(self) -> str:
+        return self.entry.data[CONF_NAME]
+
+    @property
+    def source_entity(self) -> str:
+        return self.entry.data[CONF_SOURCE_ENTITY]
+
+    @property
+    def online_entity(self) -> str | None:
+        return self.entry.data.get(CONF_ONLINE_ENTITY) or None
+
+    @property
+    def media_type(self) -> str:
+        return self.entry.data[CONF_MEDIA_TYPE]
+
+    @property
+    def context(self) -> str:
+        return self.entry.data[CONF_CONTEXT]
+
+    @property
+    def signal_type(self) -> str:
+        return self.entry.data[CONF_SIGNAL_TYPE]
+
+    @property
+    def source_app(self) -> str:
+        return self.entry.data.get(CONF_SOURCE_APP) or NO_SOURCE_APP
+
+    @property
+    def scope(self) -> str:
+        return self.entry.data.get(CONF_SCOPE, DEFAULT_SCOPE)
+
+    @property
+    def active_default_enum(self) -> int:
+        try:
+            return max(0, int(self.entry.data.get(CONF_DEFAULT_ACTIVE_ENUM) or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    @property
+    def artist_attribute(self) -> str | None:
+        return self.entry.data.get(CONF_ARTIST_ATTRIBUTE) or None
+
+    @property
+    def online(self) -> bool:
+        return self._online
+
+    # ------------------------------------------------------------- lifecycle
+
+    def add_listener(self, update_callback: Callable[[], None]) -> None:
+        self._listeners.append(update_callback)
+
+    def remove_listener(self, update_callback: Callable[[], None]) -> None:
+        if update_callback in self._listeners:
+            self._listeners.remove(update_callback)
+
+    @callback
+    def notify_listeners(self) -> None:
+        for cb in list(self._listeners):
+            cb()
+
+    async def async_setup(self) -> None:
+        await self.store.async_load(media_types=(self.media_type,))
+        watched = [self.source_entity]
+        if self.online_entity:
+            watched.append(self.online_entity)
+        self._remove_listener = async_track_state_change_event(
+            self.hass, watched, self._async_source_changed
+        )
+        state = self.hass.states.get(self.source_entity)
+        await self.async_process_state(state)
+
+    async def async_unload(self) -> None:
+        if self._remove_listener is not None:
+            self._remove_listener()
+            self._remove_listener = None
+        self.store.close() if hasattr(self.store, "close") else None
+        self._listeners.clear()
+
+    # ------------------------------------------------------------- processing
+
+    def _compute_online(self) -> bool:
+        eid = self.online_entity
+        if not eid:
+            return True
+        state = self.hass.states.get(eid)
+        return feeder.is_online(
+            None if state is None else state.state, configured=True
+        )
+
+    async def _async_source_changed(self, event: Event) -> None:
+        eid = event.data.get("entity_id")
+        if self.online_entity and eid == self.online_entity:
+            await self.async_process_state(self.hass.states.get(self.source_entity))
+            return
+        await self.async_process_state(event.data.get("new_state"))
+
+    async def async_process_state(self, state: State | None) -> None:
+        self._online = self._compute_online()
+        key = None
+        if self._online and state is not None:
+            key = feeder.derive_key(
+                media_type=self.media_type,
+                signal_type=self.signal_type,
+                state=state.state,
+                attributes=dict(state.attributes),
+                is_sensor=_is_sensor(state),
+                inactive_values=self._inactive,
+                artist_attribute=self.artist_attribute,
+            )
+
+        if key is None:
+            # Offline / nothing playing → effective 0, no catalog write.
+            self._set_inactive()
+            return
+
+        attrs = dict(state.attributes)
+        entry = await self.store.async_seen(
+            media_type=self.media_type,
+            signal_type=self.signal_type,
+            key=key,
+            context=self.context,
+            source_app=self.source_app,
+            artist=feeder.resolve_artist(attrs, self._inactive, self.artist_attribute)
+            if self.media_type == "music"
+            else None,
+            title=feeder.clean_value(attrs.get("media_title"), self._inactive)
+            or feeder.clean_value(attrs.get("title"), self._inactive),
+            album=feeder.clean_value(attrs.get("media_album_name"), self._inactive),
+            app_name=feeder.clean_value(attrs.get("app_name"), self._inactive),
+            watcher_id=self.entry.entry_id,
+        )
+        self.current_key = entry.key
+        self.current_entry_id = entry.id
+        self.current_enum = await self._effective_for(entry)
+        self.notify_listeners()
+
+    def _set_inactive(self) -> None:
+        changed = self.current_key is not None or self.current_enum != DEFAULT_ENUM
+        self.current_key = None
+        self.current_entry_id = None
+        self.current_enum = DEFAULT_ENUM
+        if changed:
+            self.notify_listeners()
+
+    async def _effective_for(self, entry) -> int:
+        parent_enum = None
+        if entry.parent_id is not None:
+            master = self.store.entries.get(entry.parent_id)
+            parent_enum = master.enum if master is not None else None
+
+        context_override = None
+        if self.media_type == "game":
+            rows = await self.store.async_contexts_for(entry.id)
+            context_override = find_context_override(
+                rows, self.context, self.source_app
+            )
+
+        return resolve_effective_enum(
+            media_type=self.media_type,
+            context=self.context,
+            active=True,
+            base_enum=entry.enum,
+            is_variant=entry.parent_id is not None,
+            parent_enum=parent_enum,
+            context_override=context_override,
+            active_default_enum=self.active_default_enum,
+        )
+
+
+def _is_sensor(state: State) -> bool:
+    return str(getattr(state, "entity_id", "")).split(".", 1)[0] == "sensor"

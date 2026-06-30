@@ -91,30 +91,46 @@ def test_override_ignored_for_non_game():
 # ----------------------------------------------------------------- stash
 
 
-def test_stash_active_zero_floors_to_one():
+def test_stash_active_zero_floors_to_configured_default():
+    # Stash watcher configures active_default_enum = 1 (= STASH_DEFAULT_ACTIVE_ENUM).
     assert E.resolve_effective_enum(
-        media_type="video", context="stash", active=True, base_enum=0
+        media_type="video", context="stash", active=True, base_enum=0,
+        active_default_enum=C.STASH_DEFAULT_ACTIVE_ENUM,
     ) == C.STASH_DEFAULT_ACTIVE_ENUM
 
 
 def test_stash_mapped_enum_wins_over_floor():
     assert E.resolve_effective_enum(
-        media_type="video", context="stash", active=True, base_enum=3
+        media_type="video", context="stash", active=True, base_enum=3,
+        active_default_enum=1,
     ) == 3
 
 
 def test_stash_offline_is_zero_not_floored():
     assert E.resolve_effective_enum(
-        media_type="video", context="stash", active=False, base_enum=0
+        media_type="video", context="stash", active=False, base_enum=0,
+        active_default_enum=1,
     ) == 0
 
 
 def test_stash_variant_inherit_then_floor():
-    # Variant inherits master 0, then stash floors to 1.
+    # Variant inherits master 0, then the active default floors to 1.
     assert E.resolve_effective_enum(
         media_type="video", context="stash", active=True,
-        base_enum=0, is_variant=True, parent_enum=0,
+        base_enum=0, is_variant=True, parent_enum=0, active_default_enum=1,
     ) == C.STASH_DEFAULT_ACTIVE_ENUM
+
+
+def test_active_default_floor_is_generic_not_stash_only():
+    # The floor is watcher-config driven, independent of context.
+    assert E.resolve_effective_enum(
+        media_type="music", context="homepod", active=True, base_enum=0,
+        active_default_enum=2,
+    ) == 2
+    # No floor configured ⇒ stays 0.
+    assert E.resolve_effective_enum(
+        media_type="music", context="homepod", active=True, base_enum=0,
+    ) == 0
 
 
 # --------------------------------------------------------- override lookup
