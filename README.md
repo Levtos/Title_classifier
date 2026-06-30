@@ -1,171 +1,175 @@
 # Title Classifier
 
-Standalone-HACS-Integration fuer Home Assistant.
+Standalone HACS integration for Home Assistant.
 
-Der Title Classifier ueberwacht konfigurierte Quell-Entitaeten, erkennt daraus
-wechselnde Titel oder Aktivitaeten und speichert jeden neu gesehenen Wert in
-einer persistenten Home-Assistant-Datenbank. Anschliessend kann jeder Wert einer
-stabilen Enum-Kategorie von `0` bis `9` zugeordnet werden. Andere Integrationen
-oder Automationen koennen dann mit diesen stabilen Zahlen arbeiten, statt rohe,
-wechselhafte Titelstrings auswerten zu muessen.
+Title Classifier watches configured source entities (media players, sensors),
+derives a canonical **catalog entry** from each currently-playing title or app,
+and lets you assign it a stable **enum** from `0` to `9`. Other integrations and
+automations then react to that stable number instead of parsing volatile title
+strings.
 
-Typische Quellen sind:
+A light policy never needs to know whether `Astro Bot`, `Spider-Man 2` or some
+track is playing — it just reads `sensor.title_classifier_<name>_enum` and acts
+on the category you mapped.
 
-- `media_player.*` mit `media_title`, `media_artist` oder aehnlichen Attributen
-- `sensor.*`, deren State direkt den aktuellen Titel, das Spiel oder die
-  Aktivitaet enthaelt
-- Sensoren mit Titelattributen wie `title`, `game_name`, `activity` oder
-  `media_title`
+> **v3 (current):** the catalog lives in a dedicated **Postgres** database (the
+> shared media catalog on LXC 108). The legacy per-watcher `.storage` JSON of v2
+> is **deprecated** — see [Legacy](#legacy-v1v2).
 
-## Was die Integration macht
+---
 
-Fuer jeden angelegten Watcher wird genau eine Quell-Entitaet beobachtet. Wenn
-sich der Wert dieser Quelle aendert, extrahiert die Integration einen
-klassifizierbaren Key, zum Beispiel:
+## v3 model
 
-- `Astro Bot`
-- `Hades`
-- `Daft Punk - One More Time`
-- `1LIVE - 1LIVE Fiehe`
-- `Walking`
+### Concepts
 
-Dieser Key wird automatisch im Storage abgelegt. Neue Keys erhalten zuerst den
-Default-Enum `0` und gelten damit als unklassifiziert. Ueber das Sidebar-Panel,
-die Number-Entity, WebSocket-Befehle oder Services kann der Key danach einer
-Kategorie von `1` bis `9` zugewiesen werden.
+| Term | Meaning |
+|---|---|
+| **Watcher** | An observer of one source entity. **Owns no catalog entry** — it only feeds sightings. |
+| **Media type** | `music` · `game` · `video` |
+| **Context** | Where it was observed: `homepod` · `pc` · `ps5` · `switch` · `stash` · `apple_tv` |
+| **Signal type** | How the key is derived: `title` (a real title) or `app` (only the app name) |
+| **Catalog entry** | The canonical title/game/video. |
+| **Variant (Kind)** | A child entry grouped under a **master** (one level). |
+| **Effective enum** | The value actually emitted to automations. |
 
-Der Enum ist die eigentliche Automations-Schnittstelle. Beispiel: Eine
-Licht-Policy muss nicht wissen, ob gerade `Astro Bot`, `Spider-Man 2` oder ein
-bestimmter Musiktitel laeuft. Sie liest nur
-`sensor.title_classifier_<name>_enum` und reagiert auf die hinterlegte Kategorie.
+### Identity
 
-## Funktionaler Ablauf
+A catalog entry is identified by:
 
-1. Ein Watcher wird im Config-Flow angelegt.
-2. Der Watcher registriert einen Listener auf der Quell-Entitaet.
-3. Bei Setup und bei jeder State-Aenderung wird aus State oder Attributen ein
-   Key gebildet.
-4. Der Key wird in `.storage/title_classifier_entries_<entry_id>` gespeichert.
-5. `first_seen`, `last_seen` und `seen_count` werden aktualisiert.
-6. Der aktuell gueltige Enum wird aus dem Storage gelesen.
-7. Die Sensoren und das Sidebar-Panel werden aktualisiert.
-8. Automationen lesen den Enum-Sensor als stabiles Signal.
-
-## Watcher-Typen
-
-- `media`: fuer Musik, Radio, Streams und andere Medien. Nutzt bevorzugt
-  `media_title` oder `title`. Bei Media-Playern wird zusaetzlich ein Artist oder
-  Sendername gesucht. Bei `sensor.*`-Quellen wird der Sensor-State als Titel
-  verwendet, wenn keine Titelattribute vorhanden sind.
-- `game`: fuer Spiele oder Apps. Nutzt Attribute wie `game_title`,
-  `game_name`, `app_title`, `app_name`, `media_title` oder faellt auf den
-  Sensor-State zurueck.
-- `activity`: fuer Aktivitaeten. Nutzt `activity`, `activity_name`,
-  `media_title`, `title`, `app_name` oder den Sensor-State.
-
-## Entitaeten
-
-Pro Watcher erzeugt die Integration:
-
-- `sensor.title_classifier_<name>_enum`  
-  Der aktuelle klassifizierte Wert als Zahl von `0` bis `9`.
-
-- `sensor.title_classifier_<name>_raw`  
-  Der aktuell erkannte rohe Key.
-
-- `sensor.title_classifier_<name>_catalog`  
-  Diagnose-Sensor mit Anzahl, bekannten Titeln, gemappten Titeln und
-  unklassifizierten Titeln als Attribute.
-
-- `number.title_classifier_<name>_current_title_enum`  
-  Setzt den Enum fuer den gerade aktiven Titel direkt aus Home Assistant heraus.
-
-## Persistenz
-
-Die Daten werden pro Watcher in Home Assistants `.storage` gespeichert:
-
-```text
-.storage/title_classifier_entries_<entry_id>
+```
+scope + media_type + signal_type + normalized_key
 ```
 
-Gespeichert werden:
+`context` is **not** part of the identity — it is an observation/override
+dimension. So `Overwatch` is **one** game entry; PC, PS5 and Switch are contexts
+attached to it (rows in `tc_v3_entry_context`), each with optional telemetry and
+a game-specific `enum_override`.
 
-- `key`: erkannter Titel oder Aktivitaetsname
-- `enum`: Kategorie `0` bis `9`
-- `first_seen`: erstes Auftreten
-- `last_seen`: letztes Auftreten
-- `seen_count`: Anzahl der Sichtungen
-- `hidden_at`: optionaler Zeitpunkt, ab dem ein ungemappter Eintrag im Panel
-  ausgeblendet wird
+### Master / variant
 
-## Services
+Music and video variants are grouped under a master via `parent_id` (one level
+only): a child cannot itself be a master, and a master with children cannot
+become a child. **Music/video variants inherit the master's enum.** Games do not
+inherit — they express per-context intent via overrides instead.
 
-Alle Services liegen unter der Domain `title_classifier`:
+### Effective-enum resolution (fixed order)
 
-- `title_classifier.set_enum`
-- `title_classifier.delete_entry`
-- `title_classifier.clear_old`
-- `title_classifier.import_entries`
-- `title_classifier.hide_unmapped`
+1. **Online gate** — offline / no active title ⇒ `0` ("nothing is playing").
+2. **Variant inheritance** — a child inherits its master's enum (music & video).
+3. **Game context override** — `media_type=game` + an `enum_override` for the
+   active context replaces the value.
+4. **Active default floor** — when active and still `0`, the watcher's
+   configured `default_active_enum` applies (e.g. **stash = 1**); a non-zero
+   entry enum always wins.
 
-Beispiel:
+---
 
-```yaml
-service: title_classifier.set_enum
-data:
-  entry_id: "01J..."
-  key: "Artist - Title"
-  enum: 4
-```
+## Configuring a watcher
 
-## Sidebar-Panel
+New watchers are **v3** and choose their axes explicitly in the config flow
+(nothing is guessed from entity names):
 
-Das Panel ist unter `/title_classifier` erreichbar. Es zeigt die Watcher,
-aktuelle Keys, bekannte Eintraege, deren Enums und Filter fuer unklassifizierte
-oder ausgeblendete Eintraege. Aenderungen im Panel schreiben direkt in denselben
-Storage, den auch die Sensoren verwenden.
+- `name`, `source_entity`
+- `media_type`, `context`, `signal_type`
+- optional `source_app` (e.g. Netflix / Plex / Jellyfin)
+- optional `default_active_enum` (stash ⇒ `1`)
+- optional `online_entity` (availability gate)
+- optional `artist_attribute` (music)
+- optional `inactive_values` (extra raw values treated as "nothing playing", e.g. `No Game`)
+- optional `artwork_entity_id` / `artwork_attribute` (live cover, default `entity_picture`)
+- `scope` (same value on two HA instances = shared catalog)
 
-## Troubleshooting: Datenbank bleibt leer
+### Examples
 
-Wenn sich die Quell-Sensoren sichtbar aendern, aber die
-`title_classifier_entries_<entry_id>`-Dateien leer bleiben, pruefe zuerst:
+| Source | media_type | context | signal_type | extra |
+|---|---|---|---|---|
+| HomePod | `music` | `homepod` | `title` | |
+| PC (Discord) game | `game` | `pc` | `title` | |
+| PS5 | `game` | `ps5` | `title` | |
+| Switch | `game` | `switch` | `title` | |
+| Stash | `video` | `stash` | `title` | `default_active_enum=1` |
+| Apple TV — Netflix (app only) | `video` | `apple_tv` | `app` | `source_app=Netflix` |
+| Apple TV — Jellyfin/Plex (real title) | `video` | `apple_tv` | `title` | `source_app=Jellyfin`/`Plex` |
 
-- Ist die konfigurierte Quell-Entitaet wirklich die Entitaet, deren State oder
-  Attribute sich aendern?
-- Ist der Sensor-State nicht `unknown`, `unavailable`, `none`, `off`, `idle`
-  oder `standby`? Diese Werte werden bewusst ignoriert.
-- Bei `media_player.*`: liefert die Entitaet ein Titelattribut wie
-  `media_title` oder `title`?
-- Bei `sensor.*`: steht der Titel direkt im State oder in einem der bekannten
-  Attribute?
+A music watcher with a resolvable artist forms the key `"Artist - Title"`.
 
-Hotfix: `media`-Watcher akzeptieren fuer `sensor.*`-Quellen jetzt auch den
-Sensor-State als Titel, wenn keine Titelattribute vorhanden sind. Damit werden
-Sensoren wie `sensor.ps5_current_title` oder aehnliche Title-Sensoren wieder als
-neue Storage-Eintraege erfasst.
+---
 
-## Integration-Metadaten
+## Entities (per v3 watcher)
+
+- `sensor.title_classifier_<name>_enum` — the **effective enum** (`0`–`9`).
+  Offline ⇒ `0` (never `unavailable`). This is the stable automation contract.
+- `sensor.title_classifier_<name>_raw` — the current key.
+- `sensor.title_classifier_<name>_catalog` — diagnostic counts.
+
+Each sensor exposes `media_type` / `context` / `signal_type` / `source_app` /
+`artwork` as attributes.
+
+---
+
+## Database
+
+A **dedicated** Postgres database (never the recorder DB). The integration
+creates its tables idempotently on setup; the database itself must already
+exist. The legacy generic `catalog_entry` table is **never** dropped.
+
+- `tc_v3_catalog` — one row per entry; identity `UNIQUE(scope, media_type,
+  signal_type, normalized_key)`; surrogate `id uuid` generated in Python (no
+  `gen_random_uuid()` dependency); `parent_id` self-reference.
+- `tc_v3_entry_context` — observation + override per `(entry_id, context,
+  source_app)`; `enum_override`, per-context telemetry.
+- Real-time sync via `NOTIFY tc_v3_change`.
+
+A single **DB hub** config entry holds the shared connection (host/port/db/user/
+password); every watcher reuses it.
+
+> Artwork is **live-only** — resolved from the source/dedicated entity and never
+> stored in Postgres. No image bytes, no blob columns, no cover archive.
+
+---
+
+## WebSocket / API
+
+Namespace `title_classifier/v3/*` (a minimal sidebar panel at
+`/title_classifier_v3` uses it):
+
+- **read:** `list_sources`, `list_entries` (filters: `media_type`, `search`,
+  `unclassified`, `include_hidden`, `limit`).
+- **classify:** `set_enum`, `set_context_override` (null clears).
+- **organise:** `group` / `ungroup` (one-level guard), `rename_entry`,
+  `set_media_type` (identity reclassify — blocks on variants), `set_context`
+  (move/merge), `set_hidden`, `delete_entry`.
+- **io:** `export_entries` / `import_entries` — image-free v3 JSON.
+
+Entries carry `media_type`, `context`, `signal_type`, `effective_enum`,
+`is_current`, `variants[]`, `hidden`. Hidden entries are normally invisible but
+shown while currently playing (`is_current` override).
+
+---
+
+## Legacy (v1/v2)
+
+Earlier versions persisted each watcher in `.storage/title_classifier_entries_<entry_id>`
+(JSON) and used a `category`/`platform`/`watcher_type` model. **That is the
+legacy path.** v3 is a hard cut to Postgres with the media-centric model above;
+v2 watchers keep working alongside v3 until you retire them, but new work should
+use v3 watchers. No data migration is required.
+
+---
+
+## Versioning / breaking changes
+
+- **v3 is additive on release** — v2 watchers continue to run; v3 watchers write
+  only `tc_v3_*`. There are no double writes and `catalog_entry` is untouched.
+- **Breaking direction:** the canonical persistence and model changed
+  (`.storage`/category → Postgres/media_type+context+signal_type). Downstream
+  consumers should read the v3 enum sensors (slug-stable). The final cutover
+  (removing v2 watchers and re-pointing consumers) is a deliberate, separate
+  step.
+
+## Integration metadata
 
 - Domain: `title_classifier`
 - Repository: `https://github.com/Levtos/Title_classifier`
-- Custom Component: `custom_components/title_classifier/`
-- Panel-Pfad: `/title_classifier`
-- WebSocket-Namespace: `title_classifier/...`
-- Storage-Key: `.storage/title_classifier_entries_<entry_id>`
-
-## Migration aus `bennis_toolbox`
-
-Diese Integration wurde am 2026-05-27 aus
-`bennis_toolbox/custom_components/bennis_toolbox/modules/title_classifier/`
-extrahiert. Die produktive Ausgangsversion war `0.5.0`; die Standalone-
-Integration startete bei `1.0.0`.
-
-Wichtige Aenderungen:
-
-- Services wechselten von `bennis_toolbox.title_classifier_*` zu
-  `title_classifier.*`.
-- WebSocket-Befehle wechselten von
-  `bennis_toolbox/title_classifier/...` zu `title_classifier/...`.
-- Unique IDs nutzen jetzt das Prefix `title_classifier_*`.
-- Storage-Keys liegen unter `.storage/title_classifier_entries_<entry_id>`.
-
+- Sidebar (v3): `/title_classifier_v3` · WebSocket namespace: `title_classifier/v3/...`
+- Requirement: `asyncpg`
