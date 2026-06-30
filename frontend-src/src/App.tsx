@@ -1,5 +1,6 @@
 import { useState, type ReactElement } from "react";
 import type { Hass } from "./ha";
+import { useV3Store } from "./state/store";
 import { PAGES, type PageId } from "./pages/registry";
 import { Sidebar } from "./components/Sidebar";
 import { CommandBar } from "./components/CommandBar";
@@ -15,8 +16,9 @@ interface Props {
   hass: Hass | null;
 }
 
-const PAGE_VIEWS: Record<PageId, () => ReactElement> = {
-  overview: Overview,
+// Placeholder pages (replaced PR by PR). Overview is rendered separately because
+// it consumes the live store.
+const PLACEHOLDER_VIEWS: Partial<Record<PageId, () => ReactElement>> = {
   inbox: Inbox,
   diary: Diary,
   catalog: Catalog,
@@ -26,22 +28,34 @@ const PAGE_VIEWS: Record<PageId, () => ReactElement> = {
 
 export function App({ hass }: Props) {
   const [page, setPage] = useState<PageId>("overview");
+  const store = useV3Store(hass);
   const meta = PAGES.find((p) => p.id === page)!;
-  const View = PAGE_VIEWS[page];
+  const Placeholder = PLACEHOLDER_VIEWS[page];
 
   return (
     <div className="tc3">
       <Sidebar current={page} onSelect={setPage} />
       <div className="tc3-body">
-        <CommandBar title={meta.label} desc={meta.desc} />
+        <CommandBar
+          title={meta.label}
+          desc={meta.desc}
+          loading={store.loading}
+          onRefresh={store.refresh}
+        />
         <main className="tc3-main">
-          <View />
+          {page === "overview" || !Placeholder ? (
+            <Overview store={store} />
+          ) : (
+            <Placeholder />
+          )}
         </main>
         <StatusBar
-          connected={hass !== null}
-          entryCount={null}
+          connected={store.connected}
+          entryCount={store.entryCount}
           selectedCount={0}
-          lastSync={null}
+          lastSync={store.lastSync}
+          error={store.error}
+          watcherCount={store.sources.length}
         />
       </div>
     </div>

@@ -4,6 +4,7 @@ interface Props {
   selectedCount: number;
   lastSync: string | null;
   error?: string | null;
+  watcherCount?: number;
 }
 
 export function StatusBar({
@@ -12,6 +13,7 @@ export function StatusBar({
   selectedCount,
   lastSync,
   error,
+  watcherCount,
 }: Props) {
   return (
     <div className="tc-statusbar">
@@ -19,6 +21,7 @@ export function StatusBar({
         <span className={`dot ${connected ? "ok" : "bad"}`} />
         {connected ? "verbunden" : "getrennt"}
       </span>
+      {watcherCount !== undefined ? <span>Watcher: {watcherCount}</span> : null}
       <span>Einträge: {entryCount ?? "—"}</span>
       <span>Auswahl: {selectedCount}</span>
       <span>Letzter Sync: {lastSync ?? "—"}</span>
