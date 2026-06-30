@@ -29,6 +29,19 @@ DEFAULT_ENUM = 0
 MIN_ENUM = 0
 MAX_ENUM = 9
 
+# Which media_type(s) each context can legitimately carry, by device semantics.
+# Used to validate reclassify (set_media_type) and context moves (set_context);
+# `pc` is multi-purpose. seen() itself is not gated by this (the watcher's
+# configured axes are trusted) — only the corrective operations are.
+CONTEXT_MEDIA_TYPES: dict[str, tuple[str, ...]] = {
+    "homepod": ("music",),
+    "pc": ("music", "game", "video"),
+    "ps5": ("game",),
+    "switch": ("game",),
+    "stash": ("video",),
+    "apple_tv": ("video",),
+}
+
 # Stash inverse semantics: an active title floors the effective enum to 1 when
 # the entry itself is still the default 0 (resolved in effective.py, FLEET-194).
 CONTEXT_STASH = "stash"
@@ -82,6 +95,18 @@ def validate_context(value: str) -> str:
 
 def clamp_enum(value: int) -> int:
     return max(MIN_ENUM, min(MAX_ENUM, int(value)))
+
+
+def context_allowed_for(media_type: str, context: str) -> bool:
+    """Whether ``context`` may carry ``media_type`` (device semantics)."""
+    return media_type in CONTEXT_MEDIA_TYPES.get(context, ())
+
+
+def allowed_contexts(media_type: str) -> tuple[str, ...]:
+    """Contexts that may carry ``media_type``."""
+    return tuple(
+        ctx for ctx, mts in CONTEXT_MEDIA_TYPES.items() if media_type in mts
+    )
 
 
 # -------------------------------------------------------------------- entities

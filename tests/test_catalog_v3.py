@@ -65,6 +65,27 @@ def test_clamp_enum_bounds():
     assert C.clamp_enum(99) == 9
 
 
+def test_context_allowed_for_device_semantics():
+    assert C.context_allowed_for("music", "homepod")
+    assert C.context_allowed_for("game", "ps5")
+    assert C.context_allowed_for("video", "stash")
+    assert C.context_allowed_for("video", "apple_tv")
+    # pc is multi-purpose.
+    assert C.context_allowed_for("music", "pc")
+    assert C.context_allowed_for("game", "pc")
+    assert C.context_allowed_for("video", "pc")
+    # mismatches.
+    assert not C.context_allowed_for("music", "ps5")
+    assert not C.context_allowed_for("game", "homepod")
+    assert not C.context_allowed_for("video", "switch")
+
+
+def test_allowed_contexts():
+    assert set(C.allowed_contexts("game")) == {"pc", "ps5", "switch"}
+    assert set(C.allowed_contexts("video")) == {"pc", "stash", "apple_tv"}
+    assert set(C.allowed_contexts("music")) == {"pc", "homepod"}
+
+
 # -------------------------------------------------------------------- entities
 
 
