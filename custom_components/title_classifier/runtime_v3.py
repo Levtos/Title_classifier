@@ -192,6 +192,19 @@ class WatcherRuntimeV3:
         self.current_enum = await self._effective_for(entry)
         self.notify_listeners()
 
+    async def async_recompute_current(self) -> None:
+        """Re-resolve the effective enum for the current entry after a catalog
+        mutation (enum/parent/override change via WS). No-op when idle."""
+        if self.current_entry_id is None:
+            return
+        entry = self.store.entries.get(self.current_entry_id)
+        if entry is None:
+            return
+        new_enum = await self._effective_for(entry)
+        if new_enum != self.current_enum:
+            self.current_enum = new_enum
+            self.notify_listeners()
+
     def _set_inactive(self) -> None:
         changed = self.current_key is not None or self.current_enum != DEFAULT_ENUM
         self.current_key = None

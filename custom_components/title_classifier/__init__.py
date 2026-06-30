@@ -51,6 +51,7 @@ from .store_v3 import CatalogStoreV3
 from .runtime_v3 import WatcherRuntimeV3
 from .services_impl import SERVICES  # re-export
 from .websockets_impl import WEBSOCKETS  # re-export
+from .websockets_v3 import WEBSOCKETS_V3  # re-export
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -329,7 +330,7 @@ async def _async_register_websockets(hass: HomeAssistant) -> None:
     if hass.data[DOMAIN].get(DATA_WEBSOCKETS_REGISTERED):
         return
 
-    for ws in WEBSOCKETS:
+    for ws in (*WEBSOCKETS, *WEBSOCKETS_V3):
         websocket_api.async_register_command(hass, ws)
 
     hass.data[DOMAIN][DATA_WEBSOCKETS_REGISTERED] = True

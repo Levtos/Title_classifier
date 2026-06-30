@@ -158,3 +158,5 @@ effective_v3 = _load("effective", "effective.py")
 sys.modules["tc_effective_v3"] = effective_v3
 feeder_v3 = _load("feeder_v3", "feeder_v3.py")
 sys.modules["tc_feeder_v3"] = feeder_v3
+api_v3 = _load("api_v3", "api_v3.py")
+sys.modules["tc_api_v3"] = api_v3
