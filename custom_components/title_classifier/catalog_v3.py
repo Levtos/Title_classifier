@@ -115,6 +115,11 @@ class CatalogEntryV3:
         return self.parent_id is not None
 
     @property
+    def is_hidden(self) -> bool:
+        """Manually hidden/archived (hidden_at set)."""
+        return bool(self.hidden_at)
+
+    @property
     def identity(self) -> tuple[str, str, str, str]:
         return (self.scope, self.media_type, self.signal_type, self.normalized_key)
 

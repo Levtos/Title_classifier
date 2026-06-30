@@ -325,6 +325,26 @@ class CatalogStoreV3:
         self._entries[entry.id] = entry
         return entry
 
+    async def async_set_hidden(
+        self, entry_id: str, hidden: bool
+    ) -> CatalogEntryV3 | None:
+        """Hide (archive) or unhide a catalog entry."""
+        row = await self._pool.fetchrow(
+            f"""
+            UPDATE tc_v3_catalog
+               SET hidden_at = CASE WHEN $2 THEN now() ELSE NULL END,
+                   updated_by = $3, updated_at = now()
+             WHERE id = $1
+            RETURNING {_CAT_COLUMNS}
+            """,
+            entry_id, hidden, self._instance_id,
+        )
+        if row is None:
+            return None
+        entry = _row_to_entry(row)
+        self._entries[entry.id] = entry
+        return entry
+
     # ------------------------------------------------------------- maintenance
 
     async def async_delete(self, entry_id: str) -> bool:

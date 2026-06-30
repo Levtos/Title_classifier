@@ -6,7 +6,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
 
 from .const import DATA_ENTRIES, DOMAIN
-from .const import MODULE_ID
+from .const import ENTRY_TYPE_WATCHER_V3, MODULE_ID
 from .runtime import WatcherRuntime
 
 
@@ -35,3 +35,28 @@ def all_runtimes(hass: HomeAssistant) -> list[WatcherRuntime]:
         if rt is not None:
             out.append(rt)
     return out
+
+
+def all_v3_runtimes(hass: HomeAssistant):
+    """Every loaded v3 watcher runtime (WatcherRuntimeV3)."""
+    out = []
+    for bucket in hass.data.get(DOMAIN, {}).get(DATA_ENTRIES, {}).values():
+        if bucket.get("entry_type") != ENTRY_TYPE_WATCHER_V3:
+            continue
+        rt = bucket.get("runtime")
+        if rt is not None:
+            out.append(rt)
+    return out
+
+
+def v3_runtime_for_entry(hass: HomeAssistant, entry_id: str):
+    """The v3 runtime whose store cache currently holds catalog entry ``entry_id``.
+
+    Falls back to the first v3 runtime (its store shares the same pool, so any
+    can perform an id-scoped DB write).
+    """
+    runtimes = all_v3_runtimes(hass)
+    for rt in runtimes:
+        if entry_id in rt.store.entries:
+            return rt
+    return runtimes[0] if runtimes else None
