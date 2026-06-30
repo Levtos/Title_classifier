@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Title Classifier v3 — Dev</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #1c1e2b;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Dev harness: mounts the custom element with a stub hass so the shell can
+         be developed/screenshotted outside Home Assistant. -->
+    <title-classifier-v3-app id="app"></title-classifier-v3-app>
+    <script type="module">
+      import "./src/main.tsx";
+      const el = document.getElementById("app");
+      el.hass = {
+        callWS: async () => [],
+        user: { name: "Dev", is_admin: true },
+      };
+    </script>
+  </body>
+</html>

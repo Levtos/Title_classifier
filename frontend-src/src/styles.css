@@ -1,0 +1,296 @@
+/* Dracula-inspired tokens + desktop-admin shell layout. Injected into the
+   panel's shadow root. HA theme variables are used only as fallbacks. */
+
+:host {
+  display: block;
+  height: 100%;
+}
+
+:host,
+:root {
+  --tc-bg: var(--primary-background-color, #1c1e2b);
+  --tc-surface: #282a36;
+  --tc-surface-raised: #343746;
+  --tc-border: #44475a;
+  --tc-text: var(--primary-text-color, #f8f8f2);
+  --tc-text-muted: #9aa0bd;
+  --tc-accent-purple: #bd93f9;
+  --tc-accent-cyan: #8be9fd;
+  --tc-accent-green: #50fa7b;
+  --tc-accent-orange: #ffb86c;
+  --tc-accent-pink: #ff79c6;
+  --tc-danger: #ff5555;
+  --tc-radius: 10px;
+  --tc-gap: 14px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.tc3 {
+  display: grid;
+  grid-template-columns: 232px 1fr;
+  height: 100%;
+  min-height: 0;
+  font-family: var(--paper-font-body1_-_font-family, "Segoe UI", system-ui, sans-serif);
+  color: var(--tc-text);
+  background: var(--tc-bg);
+  font-size: 14px;
+}
+
+.tc3-body {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.tc3-main {
+  min-height: 0;
+  overflow: auto;
+  padding: 18px;
+}
+
+/* ---------------------------------------------------------------- sidebar */
+
+.tc-sidebar {
+  background: var(--tc-surface);
+  border-right: 1px solid var(--tc-border);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.tc-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 16px 12px;
+  border-bottom: 1px solid var(--tc-border);
+}
+
+.tc-brand .logo {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, var(--tc-accent-purple), var(--tc-accent-pink));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  color: #1c1e2b;
+}
+
+.tc-brand .title {
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.tc-brand .sub {
+  color: var(--tc-text-muted);
+  font-size: 11px;
+}
+
+.tc-nav {
+  padding: 10px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.tc-nav button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--tc-text);
+  padding: 9px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.tc-nav button:hover {
+  background: var(--tc-surface-raised);
+}
+
+.tc-nav button.active {
+  background: color-mix(in srgb, var(--tc-accent-purple) 22%, transparent);
+  border-color: color-mix(in srgb, var(--tc-accent-purple) 55%, transparent);
+  color: #fff;
+}
+
+.tc-nav .ico {
+  width: 18px;
+  text-align: center;
+  opacity: 0.85;
+}
+
+.tc-sidebar .foot {
+  padding: 10px 16px;
+  border-top: 1px solid var(--tc-border);
+  color: var(--tc-text-muted);
+  font-size: 11px;
+}
+
+/* ------------------------------------------------------------- command bar */
+
+.tc-cmdbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--tc-border);
+  background: color-mix(in srgb, var(--tc-surface) 60%, var(--tc-bg));
+}
+
+.tc-cmdbar h1 {
+  font-size: 17px;
+  margin: 0;
+}
+
+.tc-cmdbar .desc {
+  color: var(--tc-text-muted);
+  font-size: 12px;
+}
+
+.tc-cmdbar .spacer {
+  flex: 1;
+}
+
+.tc-menu-btn {
+  display: none;
+}
+
+input,
+select,
+button {
+  font: inherit;
+  color: var(--tc-text);
+}
+
+.tc-input,
+.tc-select,
+.tc-btn {
+  background: var(--tc-surface-raised);
+  border: 1px solid var(--tc-border);
+  border-radius: 8px;
+  padding: 7px 10px;
+  color: var(--tc-text);
+}
+
+.tc-btn {
+  cursor: pointer;
+}
+
+.tc-btn:hover:not(:disabled) {
+  border-color: var(--tc-accent-purple);
+}
+
+.tc-btn.primary {
+  background: var(--tc-accent-purple);
+  border-color: var(--tc-accent-purple);
+  color: #1c1e2b;
+  font-weight: 600;
+}
+
+.tc-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* -------------------------------------------------------------- status bar */
+
+.tc-statusbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 7px 18px;
+  border-top: 1px solid var(--tc-border);
+  background: var(--tc-surface);
+  color: var(--tc-text-muted);
+  font-size: 12px;
+}
+
+.tc-statusbar .dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+.tc-statusbar .ok {
+  background: var(--tc-accent-green);
+}
+
+.tc-statusbar .bad {
+  background: var(--tc-danger);
+}
+
+.tc-statusbar .right {
+  margin-left: auto;
+}
+
+/* -------------------------------------------------------------- page card */
+
+.tc-page {
+  max-width: 1200px;
+}
+
+.tc-card {
+  background: var(--tc-surface);
+  border: 1px solid var(--tc-border);
+  border-radius: var(--tc-radius);
+  padding: 18px;
+}
+
+.tc-placeholder {
+  color: var(--tc-text-muted);
+}
+
+.tc-placeholder h2 {
+  color: var(--tc-text);
+  margin: 0 0 6px;
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  border: 1px solid var(--tc-border);
+}
+
+.badge.music {
+  color: var(--tc-accent-cyan);
+  border-color: color-mix(in srgb, var(--tc-accent-cyan) 50%, transparent);
+}
+.badge.game {
+  color: var(--tc-accent-green);
+  border-color: color-mix(in srgb, var(--tc-accent-green) 50%, transparent);
+}
+.badge.video {
+  color: var(--tc-accent-orange);
+  border-color: color-mix(in srgb, var(--tc-accent-orange) 50%, transparent);
+}
+
+@media (max-width: 870px) {
+  .tc3 {
+    grid-template-columns: 1fr;
+  }
+  .tc-sidebar {
+    display: none;
+  }
+  .tc-menu-btn {
+    display: inline-flex;
+  }
+}

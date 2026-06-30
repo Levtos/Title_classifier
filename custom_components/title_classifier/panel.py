@@ -25,10 +25,14 @@ _LOGGER = logging.getLogger(__name__)
 _URL_PATH = panel_url_path(MODULE_ID)  # title_classifier
 _STATIC_PREFIX = f"/{_URL_PATH}/frontend"
 
-# Minimal v3 panel (FLEET-200) — separate sidebar entry, shares the static dir.
+# v3 UX (TC v3.1, FLEET-185): the React/TS app is the primary panel; the old
+# minimal panel stays only as a URL-only debug fallback (no sidebar entry).
 _URL_PATH_V3 = f"{_URL_PATH}_v3"  # title_classifier_v3
+_URL_PATH_V3_DEBUG = f"{_URL_PATH}_v3_debug"  # title_classifier_v3_debug
 _PANEL_V3_TITLE = "Title Classifier v3"
 _PANEL_V3_ICON = "mdi:tag-multiple-outline"
+_V3_APP_JS = "v3-app/title-classifier-v3-app.js"
+_V3_DEBUG_JS = "title-classifier-v3-panel.js"
 
 
 async def _async_register_static(hass: HomeAssistant) -> None:
@@ -54,21 +58,29 @@ async def _version_tag(hass: HomeAssistant) -> str:
         return "dev"
 
 
+def _remove_panel_if_present(hass: HomeAssistant, url_path: str) -> None:
+    panels = hass.data.get("frontend_panels") or {}
+    if url_path in panels:
+        try:
+            frontend.async_remove_panel(hass, url_path)
+        except Exception:  # noqa: BLE001 — frontend has no narrow error class.
+            _LOGGER.debug("panel %s already absent during cleanup", url_path)
+
+
 async def async_register_v3_panel(hass: HomeAssistant) -> None:
-    """Register the minimal v3 sidebar panel idempotently."""
+    """Register the v3 React/TS UX panel (primary) idempotently.
+
+    The minimal vanilla panel is also registered, but URL-only (no sidebar entry)
+    as a debug fallback under /title_classifier_v3_debug.
+    """
     frontend_dir = Path(__file__).parent / "frontend"
-    if not (frontend_dir / "title-classifier-v3-panel.js").exists():
+    if not (frontend_dir / _V3_APP_JS).exists():
         return
     await _async_register_static(hass)
-
-    panels = hass.data.get("frontend_panels") or {}
-    if _URL_PATH_V3 in panels:
-        try:
-            frontend.async_remove_panel(hass, _URL_PATH_V3)
-        except Exception:  # noqa: BLE001 — frontend has no narrow error class.
-            _LOGGER.debug("title_classifier_v3 panel already absent during cleanup")
-
     version = await _version_tag(hass)
+
+    # Primary: React app → sidebar "Title Classifier v3".
+    _remove_panel_if_present(hass, _URL_PATH_V3)
     frontend.async_register_built_in_panel(
         hass,
         component_name="custom",
@@ -78,13 +90,33 @@ async def async_register_v3_panel(hass: HomeAssistant) -> None:
         require_admin=True,
         config={
             "_panel_custom": {
-                "name": "title-classifier-v3-panel",
+                "name": "title-classifier-v3-app",
                 "embed_iframe": False,
                 "trust_external": False,
-                "js_url": f"{_STATIC_PREFIX}/title-classifier-v3-panel.js?v={version}",
+                "js_url": f"{_STATIC_PREFIX}/{_V3_APP_JS}?v={version}",
             }
         },
     )
+
+    # Debug fallback: minimal panel, URL-only (sidebar_title=None → no sidebar spam).
+    if (frontend_dir / _V3_DEBUG_JS).exists():
+        _remove_panel_if_present(hass, _URL_PATH_V3_DEBUG)
+        frontend.async_register_built_in_panel(
+            hass,
+            component_name="custom",
+            sidebar_title=None,
+            sidebar_icon=None,
+            frontend_url_path=_URL_PATH_V3_DEBUG,
+            require_admin=True,
+            config={
+                "_panel_custom": {
+                    "name": "title-classifier-v3-panel",
+                    "embed_iframe": False,
+                    "trust_external": False,
+                    "js_url": f"{_STATIC_PREFIX}/{_V3_DEBUG_JS}?v={version}",
+                }
+            },
+        )
 
 
 async def async_register_panel(hass: HomeAssistant) -> None:
