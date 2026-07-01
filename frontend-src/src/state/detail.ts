@@ -15,7 +15,8 @@ const EMPTY: EntryDetailState = { detail: null, loading: false, error: null };
 // contexts — they come straight from the API. Errors stay visible.
 export function useEntryDetail(
   hass: Hass | null,
-  id: string | null
+  id: string | null,
+  reloadKey: number | string = 0
 ): EntryDetailState {
   const [state, setState] = useState<EntryDetailState>(EMPTY);
   const hassRef = useRef<Hass | null>(hass);
@@ -49,7 +50,7 @@ export function useEntryDetail(
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, reloadKey]);
 
   return state;
 }

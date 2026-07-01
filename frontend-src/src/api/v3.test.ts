@@ -34,3 +34,16 @@ describe("v3 api — entryDetail", () => {
     );
   });
 });
+
+describe("v3 api — group", () => {
+  it("calls the group command with child_id and parent_id", async () => {
+    const { hass, calls } = fakeHass(() => ({ ok: true }));
+    const res = await createV3Api(hass).group("child-1", "master-1");
+    expect(calls[0]).toMatchObject({
+      type: "title_classifier/v3/group",
+      child_id: "child-1",
+      parent_id: "master-1",
+    });
+    expect(res.ok).toBe(true);
+  });
+});
