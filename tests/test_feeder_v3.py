@@ -125,6 +125,19 @@ def test_inactive_state_yields_no_key():
     assert key is None
 
 
+def test_inactive_value_matches_case_insensitively_and_trimmed():
+    # Configured "No Game" must catch these before any catalog write.
+    iv = F.build_inactive_values(["No Game"])
+    for state in ("No Game", "no game", "  No Game  ", "NO GAME"):
+        assert (
+            F.derive_key(
+                media_type="game", signal_type="title",
+                state=state, attributes={}, is_sensor=True, inactive_values=iv,
+            )
+            is None
+        )
+
+
 def test_stash_video_title_from_sensor():
     key = F.derive_key(
         media_type="video", signal_type="title",

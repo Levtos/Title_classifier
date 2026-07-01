@@ -17,8 +17,15 @@ from homeassistant.helpers import config_validation as cv
 
 from . import api_v3
 from ._lookup import all_v3_runtimes, v3_runtime_for_entry
-from .catalog_v3 import CONTEXTS, MAX_ENUM, MEDIA_TYPES, MIN_ENUM, ParentGuardError
-from .const import MODULE_ID, websocket_type
+from .catalog_v3 import (
+    CONTEXTS,
+    MAX_ENUM,
+    MEDIA_TYPES,
+    MIN_ENUM,
+    ParentGuardError,
+    normalized_inactive_keys,
+)
+from .const import CONF_INACTIVE_VALUES, MODULE_ID, websocket_type
 
 
 def _wt(cmd: str) -> str:
@@ -55,6 +62,12 @@ def _source_payload(rt) -> dict[str, Any]:
         "current_artwork": rt.current_artwork,
         "entry_count": total,
         "unmapped_count": unmapped,
+        # Normalized inactive keys so the UI can hide stale entries (e.g. a
+        # "No Game" row saved before the value was added). Runtime still skips
+        # inactive values before async_seen; this is only for existing rows.
+        "inactive_keys": normalized_inactive_keys(
+            rt.entry.data.get(CONF_INACTIVE_VALUES)
+        ),
     }
 
 

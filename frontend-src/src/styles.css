@@ -595,6 +595,31 @@ button {
   border-color: color-mix(in srgb, var(--tc-accent-purple) 50%, transparent);
 }
 
+/* ------------------------------------------------------- media-type accents */
+/* Reusable, subtle Dracula accent per media_type (Inbox / Katalog / Übersicht):
+   a left edge + a faint row/card tint — not just text colour, not too loud. */
+
+.media-type-music {
+  --mt-accent: var(--tc-accent-cyan);
+}
+.media-type-game {
+  --mt-accent: var(--tc-accent-green);
+}
+.media-type-video {
+  --mt-accent: var(--tc-accent-orange);
+}
+
+.tc-watcher[class*="media-type-"] {
+  border-left: 3px solid var(--mt-accent);
+}
+
+.tc-table tbody tr[class*="media-type-"] td:first-child {
+  box-shadow: inset 4px 0 0 var(--mt-accent);
+}
+.tc-table tbody tr[class*="media-type-"] {
+  background: color-mix(in srgb, var(--mt-accent) 6%, transparent);
+}
+
 /* ---------------------------------------------------------------- detail */
 
 .tc-detail {

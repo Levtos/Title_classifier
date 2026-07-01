@@ -14,7 +14,7 @@
           "default_active_enum": "Active default enum (e.g. stash = 1, else 0)",
           "online_entity": "Online / availability entity (optional)",
           "artist_attribute": "Artist / station attribute (optional, music only)",
-          "inactive_values": "Extra inactive values (e.g. \"No Game\")",
+          "inactive_values": "Extra inactive values, comma-separated (e.g. \"No Game, Paused\")",
           "artwork_entity_id": "Artwork entity (optional)",
           "artwork_attribute": "Artwork attribute (default: entity_picture)",
           "scope": "Scope (same value on both instances = shared)",

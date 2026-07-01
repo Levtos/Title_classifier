@@ -3,6 +3,8 @@ import type { Hass } from "../ha";
 import type { V3Store } from "../state/store";
 import { useEntryDetail } from "../state/detail";
 import { sortInbox } from "../state/sort";
+import { mediaTypeClass } from "../state/media";
+import { markVariantCandidates } from "../state/variants";
 import type { Context, MediaType, SignalType } from "../state/types";
 import { CONTEXTS, MEDIA_TYPES, SIGNAL_TYPES } from "../state/types";
 import { EnumSelect } from "../components/EnumSelect";
@@ -19,27 +21,56 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
   const [signal, setSignal] = useState<SignalType | "">("");
   const [context, setContext] = useState<Context | "">("");
   const [includeHidden, setIncludeHidden] = useState(false);
+  const [variantsFirst, setVariantsFirst] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [focusedId, setFocusedId] = useState<string | null>(null);
 
-  // Default Inbox filter: unclassified (server enum 0), not hidden, top-level.
-  const rows = useMemo(
-    () =>
-      sortInbox(
-        store.displayEntries.filter((e) => {
-          if (e.parent_id !== null) return false;
-          if (e.serverEnum !== 0) return false;
-          if (!includeHidden && e.hidden) return false;
-          if (media && e.media_type !== media) return false;
-          if (signal && e.signal_type !== signal) return false;
-          if (context && e.current_context !== context) return false;
-          if (search && !e.key.toLowerCase().includes(search.toLowerCase()))
-            return false;
-          return true;
-        })
-      ),
-    [store.displayEntries, includeHidden, media, signal, context, search]
+  // Union of configured inactive keys across watchers → hide stale rows like
+  // "No Game" that were saved before the value was added.
+  const inactiveKeys = useMemo(
+    () => new Set(store.sources.flatMap((s) => s.inactive_keys ?? [])),
+    [store.sources]
   );
+
+  // Frontend-only variant-candidate hint (never auto-groups).
+  const candidates = useMemo(
+    () => markVariantCandidates(store.displayEntries),
+    [store.displayEntries]
+  );
+  const isCand = (id: string) => candidates.get(id)?.candidate ?? false;
+
+  // Default Inbox filter: unclassified (server enum 0), not hidden, top-level,
+  // not an inactive value.
+  const rows = useMemo(() => {
+    const filtered = store.displayEntries.filter((e) => {
+      if (e.parent_id !== null) return false;
+      if (e.serverEnum !== 0) return false;
+      if (!includeHidden && e.hidden) return false;
+      if (inactiveKeys.has(e.normalized_key)) return false;
+      if (media && e.media_type !== media) return false;
+      if (signal && e.signal_type !== signal) return false;
+      if (context && e.current_context !== context) return false;
+      if (search && !e.key.toLowerCase().includes(search.toLowerCase()))
+        return false;
+      return true;
+    });
+    const sorted = sortInbox(filtered);
+    // Stable second pass: candidate clusters to the top when toggled on.
+    return variantsFirst
+      ? [...sorted].sort((a, b) => Number(isCand(b.id)) - Number(isCand(a.id)))
+      : sorted;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    store.displayEntries,
+    includeHidden,
+    media,
+    signal,
+    context,
+    search,
+    inactiveKeys,
+    candidates,
+    variantsFirst,
+  ]);
 
   const toggleSel = (id: string) =>
     setSelected((prev) => {
@@ -110,6 +141,14 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
             />
             versteckte
           </label>
+          <label className="tc-check">
+            <input
+              type="checkbox"
+              checked={variantsFirst}
+              onChange={(e) => setVariantsFirst(e.target.checked)}
+            />
+            mögliche Varianten zuerst
+          </label>
           <span className="tc-filters-info">
             {rows.length} Einträge · Auswahl {selected.size} · offen{" "}
             {store.dirtyCount}
@@ -143,9 +182,9 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
                 rows.map((e) => (
                   <tr
                     key={e.id}
-                    className={`${e.id === focusedId ? "focused" : ""} ${
-                      e.dirty ? "dirty" : ""
-                    }`}
+                    className={`${mediaTypeClass(e.media_type)} ${
+                      e.id === focusedId ? "focused" : ""
+                    } ${e.dirty ? "dirty" : ""}`}
                     onClick={() => setFocusedId(e.id)}
                   >
                     <td>
@@ -180,6 +219,14 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
                       ) : (
                         <span className="tc-muted">—</span>
                       )}
+                      {isCand(e.id) ? (
+                        <span
+                          className="badge var"
+                          title="Mögliche Variante — nicht automatisch gruppiert"
+                        >
+                          ⛓ {candidates.get(e.id)?.clusterSize}
+                        </span>
+                      ) : null}
                     </td>
                     <td className="tc-muted">{shortTime(e.last_seen)}</td>
                     <td>

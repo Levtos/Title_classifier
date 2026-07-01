@@ -86,6 +86,22 @@ def test_allowed_contexts():
     assert set(C.allowed_contexts("music")) == {"pc", "homepod"}
 
 
+def test_normalized_inactive_keys_case_and_trim():
+    # All three variants normalise to the same key as normalize_key("No Game").
+    for variant in ("No Game", "no game", "  No Game  "):
+        assert C.normalized_inactive_keys([variant]) == [C.normalize_key("No Game")]
+        assert C.normalized_inactive_keys([variant]) == ["no game"]
+
+
+def test_normalized_inactive_keys_accepts_comma_string_and_dedupes():
+    assert C.normalized_inactive_keys("No Game, no game ,Paused") == [
+        "no game",
+        "paused",
+    ]
+    assert C.normalized_inactive_keys(["", "  ", None]) == []
+    assert C.normalized_inactive_keys(None) == []
+
+
 # -------------------------------------------------------------------- entities
 
 

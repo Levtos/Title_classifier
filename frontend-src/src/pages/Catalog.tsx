@@ -3,6 +3,7 @@ import type { Hass } from "../ha";
 import type { V3Store } from "../state/store";
 import type { DisplayEntry } from "../state/drafts";
 import { useEntryDetail } from "../state/detail";
+import { mediaTypeClass } from "../state/media";
 import {
   buildCatalogTree,
   filterCatalog,
@@ -141,9 +142,9 @@ export function Catalog({ store, hass }: { store: V3Store; hass: Hass | null }) 
                 rows.map((r) => (
                   <tr
                     key={r.entry.id}
-                    className={`${r.entry.id === focusedId ? "focused" : ""} ${
-                      r.depth > 0 ? "is-child" : ""
-                    }`}
+                    className={`${mediaTypeClass(r.entry.media_type)} ${
+                      r.entry.id === focusedId ? "focused" : ""
+                    } ${r.depth > 0 ? "is-child" : ""}`}
                     onClick={() => setFocusedId(r.entry.id)}
                   >
                     <td
