@@ -32,7 +32,7 @@ export function App({ hass }: Props) {
   const Placeholder = PLACEHOLDER_VIEWS[page];
 
   const renderPage = (): ReactElement => {
-    if (page === "inbox") return <Inbox store={store} />;
+    if (page === "inbox") return <Inbox store={store} hass={hass} />;
     if (page === "overview" || !Placeholder) return <Overview store={store} />;
     return <Placeholder />;
   };

@@ -61,3 +61,38 @@ export interface V3Entry {
   last_seen: string;
   seen_count: number;
 }
+
+export interface V3EntryRef {
+  id: string;
+  key: string;
+  enum: number;
+}
+
+export interface V3EntryContext {
+  context: Context;
+  source_app: string;
+  enum_override: number | null;
+  seen_count: number;
+  first_seen: string;
+  last_seen: string;
+  effective_preview: number;
+}
+
+export interface V3EntryDetail {
+  id: string;
+  scope: string;
+  media_type: MediaType;
+  signal_type: SignalType;
+  key: string;
+  normalized_key: string;
+  enum: number;
+  parent_id: string | null;
+  is_variant: boolean;
+  hidden: boolean;
+  first_seen: string;
+  last_seen: string;
+  seen_count: number;
+  parent: V3EntryRef | null;
+  variants: V3EntryRef[];
+  contexts: V3EntryContext[];
+}

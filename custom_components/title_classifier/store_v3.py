@@ -448,6 +448,30 @@ class CatalogStoreV3:
                 await self._delete_context(entry_id, ctx.context, ctx.source_app)
         return ("ok", updated)
 
+    async def _children_of(self, entry_id: str) -> list[CatalogEntryV3]:
+        rows = await self._pool.fetch(
+            f"SELECT {_CAT_COLUMNS} FROM tc_v3_catalog WHERE parent_id = $1",
+            entry_id,
+        )
+        return [_row_to_entry(r) for r in rows]
+
+    async def async_entry_detail(
+        self, entry_id: str
+    ) -> tuple[CatalogEntryV3, list[ContextRow], CatalogEntryV3 | None, list[CatalogEntryV3]] | None:
+        """Gather full detail for one entry: the entry, its context rows, its
+        parent (if a variant) and its child variants. None when not found."""
+        entry = await self._get_entry(entry_id)
+        if entry is None:
+            return None
+        contexts = await self.async_contexts_for(entry_id)
+        parent = (
+            await self._get_entry(entry.parent_id)
+            if entry.parent_id is not None
+            else None
+        )
+        children = await self._children_of(entry_id)
+        return (entry, contexts, parent, children)
+
     async def _get_context(
         self, entry_id: str, context: str, source_app: str
     ) -> ContextRow | None:

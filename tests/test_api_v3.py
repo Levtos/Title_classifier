@@ -85,6 +85,49 @@ def test_filters_media_type_search_unclassified_limit():
     assert len(A.select_and_view(entries, {}, limit=1)) == 1
 
 
+def _ctx(entry_id, context, **kw) -> C.ContextRow:
+    base = dict(entry_id=entry_id, context=context, source_app="", seen_count=2)
+    base.update(kw)
+    return C.ContextRow(**base)
+
+
+def test_build_entry_detail_game_contexts_and_overrides():
+    game = _e("g", "Overwatch", media_type="game", enum=0)
+    contexts = [
+        _ctx("g", "pc"),
+        _ctx("g", "ps5", enum_override=4),
+    ]
+    detail = A.build_entry_detail(game, contexts, None, [])
+    assert detail["id"] == "g"
+    assert detail["parent"] is None
+    by_ctx = {c["context"]: c for c in detail["contexts"]}
+    # pc: no override → catalog base 0; ps5: override 4 wins.
+    assert by_ctx["pc"]["enum_override"] is None
+    assert by_ctx["pc"]["effective_preview"] == 0
+    assert by_ctx["ps5"]["enum_override"] == 4
+    assert by_ctx["ps5"]["effective_preview"] == 4
+    assert by_ctx["ps5"]["seen_count"] == 2
+
+
+def test_build_entry_detail_variant_inherits_master_in_preview():
+    master = _e("m", "Numb", enum=6, media_type="music")
+    variant = _e("v", "Numb (Live)", enum=0, parent_id="m", media_type="music")
+    detail = A.build_entry_detail(variant, [_ctx("v", "homepod")], master, [])
+    assert detail["is_variant"] is True
+    assert detail["parent"] == {"id": "m", "key": "Numb", "enum": 6}
+    # music variant inherits the master enum in the effective preview.
+    assert detail["contexts"][0]["effective_preview"] == 6
+
+
+def test_build_entry_detail_lists_children():
+    master = _e("m", "Master", enum=3)
+    children = [_e("c1", "B Variant", parent_id="m"), _e("c2", "A Variant", parent_id="m")]
+    detail = A.build_entry_detail(master, [], None, children)
+    # children sorted by key.
+    assert [v["key"] for v in detail["variants"]] == ["A Variant", "B Variant"]
+    assert detail["variants"][0]["id"] == "c2"
+
+
 def test_ordering_unmapped_first():
     a = _e("a", "Mapped", enum=5, last_seen="2026-01-10T00:00:00+00:00")
     b = _e("b", "Unmapped", enum=0, last_seen="2026-01-05T00:00:00+00:00")

@@ -9,7 +9,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from .catalog_v3 import DEFAULT_ENUM, CatalogEntryV3
+from .catalog_v3 import DEFAULT_ENUM, CatalogEntryV3, ContextRow
+from .effective import resolve_effective_enum
 
 # current map: entry_id -> (effective_enum, context, source_app)
 CurrentMap = Mapping[str, tuple[int, str, str]]
@@ -109,3 +110,69 @@ def select_and_view(
         if limit and len(out) >= limit:
             break
     return out
+
+
+def _ref(entry: CatalogEntryV3 | None) -> dict | None:
+    if entry is None:
+        return None
+    return {"id": entry.id, "key": entry.key, "enum": entry.enum}
+
+
+def build_entry_detail(
+    entry: CatalogEntryV3,
+    contexts: list[ContextRow],
+    parent: CatalogEntryV3 | None,
+    children: list[CatalogEntryV3],
+) -> dict:
+    """Full detail view for one entry (v3/entry_detail).
+
+    ``effective_preview`` per context is the catalog-derivable effective enum
+    (variant inheritance + game override, active=True). It deliberately omits
+    the watcher's ``active_default_enum`` floor (e.g. stash ⇒ 1) since that lives
+    in the watcher config, not the catalog — the live sensor applies it. No
+    artwork is included here: artwork is live-only (per watcher/source), never
+    stored on the catalog entry.
+    """
+    is_variant = entry.parent_id is not None
+    parent_enum = parent.enum if parent is not None else None
+    ctxs = []
+    for c in contexts:
+        preview = resolve_effective_enum(
+            media_type=entry.media_type,
+            context=c.context,
+            active=True,
+            base_enum=entry.enum,
+            is_variant=is_variant,
+            parent_enum=parent_enum,
+            context_override=c.enum_override,
+            active_default_enum=DEFAULT_ENUM,
+        )
+        ctxs.append(
+            {
+                "context": c.context,
+                "source_app": c.source_app,
+                "enum_override": c.enum_override,
+                "seen_count": c.seen_count,
+                "first_seen": c.first_seen,
+                "last_seen": c.last_seen,
+                "effective_preview": preview,
+            }
+        )
+    return {
+        "id": entry.id,
+        "scope": entry.scope,
+        "media_type": entry.media_type,
+        "signal_type": entry.signal_type,
+        "key": entry.key,
+        "normalized_key": entry.normalized_key,
+        "enum": entry.enum,
+        "parent_id": entry.parent_id,
+        "is_variant": is_variant,
+        "hidden": entry.is_hidden,
+        "first_seen": entry.first_seen,
+        "last_seen": entry.last_seen,
+        "seen_count": entry.seen_count,
+        "parent": _ref(parent),
+        "variants": [_ref(c) for c in sorted(children, key=lambda c: c.key.lower())],
+        "contexts": ctxs,
+    }

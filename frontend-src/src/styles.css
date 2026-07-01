@@ -609,6 +609,63 @@ button {
   gap: 8px;
 }
 
+.tc-detail-art {
+  width: 100%;
+  max-height: 160px;
+  object-fit: cover;
+  border-radius: 8px;
+  margin-bottom: 10px;
+}
+
+.tc-detail-parent {
+  font-size: 12px;
+  color: var(--tc-text-muted);
+  background: var(--tc-surface-raised);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 12px;
+}
+
+.tc-detail-section {
+  margin-bottom: 14px;
+}
+
+.tc-detail-section h4 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--tc-text-muted);
+}
+
+.tc-ctx-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.tc-ctx-table th,
+.tc-ctx-table td {
+  text-align: left;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--tc-border);
+}
+
+.tc-ctx-table th {
+  color: var(--tc-text-muted);
+  font-weight: 600;
+}
+
+.tc-variants {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+}
+
+.tc-variants li {
+  margin-bottom: 3px;
+}
+
 @media (max-width: 870px) {
   .tc3 {
     grid-template-columns: 1fr;

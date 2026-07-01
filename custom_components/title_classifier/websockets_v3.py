@@ -103,6 +103,24 @@ async def ws_v3_list_entries(hass, connection, msg) -> None:
     )
 
 
+@websocket_api.websocket_command({
+    vol.Required("type"): _wt("entry_detail"),
+    vol.Required("entry_id"): cv.string,
+})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_v3_entry_detail(hass, connection, msg) -> None:
+    rt = v3_runtime_for_entry(hass, msg["entry_id"])
+    if rt is None:
+        connection.send_error(msg["id"], "not_found", "no v3 watcher available")
+        return
+    detail = await rt.store.async_entry_detail(msg["entry_id"])
+    if detail is None:
+        connection.send_error(msg["id"], "not_found", "entry not found")
+        return
+    connection.send_result(msg["id"], api_v3.build_entry_detail(*detail))
+
+
 # ------------------------------------------------------------------ mutate
 
 
@@ -368,6 +386,7 @@ async def ws_v3_import_entries(hass, connection, msg) -> None:
 WEBSOCKETS_V3 = [
     ws_v3_list_sources,
     ws_v3_list_entries,
+    ws_v3_entry_detail,
     ws_v3_set_enum,
     ws_v3_group,
     ws_v3_ungroup,
