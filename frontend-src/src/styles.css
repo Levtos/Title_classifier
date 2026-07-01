@@ -558,6 +558,43 @@ button {
   padding: 3px 8px;
 }
 
+/* ---------------------------------------------------------------- catalog */
+
+.tc-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.tc-tab {
+  background: var(--tc-surface-raised);
+  border: 1px solid var(--tc-border);
+  border-radius: 8px;
+  padding: 6px 14px;
+  color: var(--tc-text);
+  cursor: pointer;
+}
+
+.tc-tab:hover {
+  border-color: var(--tc-accent-purple);
+}
+
+.tc-tab.active {
+  background: color-mix(in srgb, var(--tc-accent-purple) 22%, transparent);
+  border-color: color-mix(in srgb, var(--tc-accent-purple) 55%, transparent);
+  color: #fff;
+}
+
+.tc-table tbody tr.is-child td {
+  background: color-mix(in srgb, var(--tc-accent-purple) 6%, transparent);
+}
+
+.badge.var {
+  color: var(--tc-accent-purple);
+  border-color: color-mix(in srgb, var(--tc-accent-purple) 50%, transparent);
+}
+
 /* ---------------------------------------------------------------- detail */
 
 .tc-detail {
