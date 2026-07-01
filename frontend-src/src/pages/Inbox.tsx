@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { Hass } from "../ha";
 import type { V3Store } from "../state/store";
 import { useEntryDetail } from "../state/detail";
+import { sortInbox } from "../state/sort";
 import type { Context, MediaType, SignalType } from "../state/types";
 import { CONTEXTS, MEDIA_TYPES, SIGNAL_TYPES } from "../state/types";
 import { EnumSelect } from "../components/EnumSelect";
@@ -24,17 +25,19 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
   // Default Inbox filter: unclassified (server enum 0), not hidden, top-level.
   const rows = useMemo(
     () =>
-      store.displayEntries.filter((e) => {
-        if (e.parent_id !== null) return false;
-        if (e.serverEnum !== 0) return false;
-        if (!includeHidden && e.hidden) return false;
-        if (media && e.media_type !== media) return false;
-        if (signal && e.signal_type !== signal) return false;
-        if (context && e.current_context !== context) return false;
-        if (search && !e.key.toLowerCase().includes(search.toLowerCase()))
-          return false;
-        return true;
-      }),
+      sortInbox(
+        store.displayEntries.filter((e) => {
+          if (e.parent_id !== null) return false;
+          if (e.serverEnum !== 0) return false;
+          if (!includeHidden && e.hidden) return false;
+          if (media && e.media_type !== media) return false;
+          if (signal && e.signal_type !== signal) return false;
+          if (context && e.current_context !== context) return false;
+          if (search && !e.key.toLowerCase().includes(search.toLowerCase()))
+            return false;
+          return true;
+        })
+      ),
     [store.displayEntries, includeHidden, media, signal, context, search]
   );
 
