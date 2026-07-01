@@ -1,7 +1,9 @@
 import { useMemo, useState } from "react";
 import type { Hass } from "../ha";
+import { createV3Api } from "../api/v3";
 import type { V3Store } from "../state/store";
 import { useEntryDetail } from "../state/detail";
+import { buildGroupPayload } from "../state/group";
 import { sortInbox } from "../state/sort";
 import { mediaTypeClass } from "../state/media";
 import { markVariantCandidates } from "../state/variants";
@@ -24,6 +26,11 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
   const [variantsFirst, setVariantsFirst] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [focusedId, setFocusedId] = useState<string | null>(null);
+  const [detailReload, setDetailReload] = useState(0);
+  const [groupOpen, setGroupOpen] = useState(false);
+  const [groupMasterId, setGroupMasterId] = useState<string | null>(null);
+  const [groupSaving, setGroupSaving] = useState(false);
+  const [groupError, setGroupError] = useState<string | null>(null);
 
   // Union of configured inactive keys across watchers → hide stale rows like
   // "No Game" that were saved before the value was added.
@@ -79,8 +86,61 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
       return next;
     });
 
+  const selectedRows = useMemo(
+    () => rows.filter((e) => selected.has(e.id)),
+    [rows, selected]
+  );
+
+  const clearSelection = () => {
+    setSelected(new Set());
+    setGroupOpen(false);
+    setGroupMasterId(null);
+    setGroupError(null);
+  };
+
+  const openGroupDialog = () => {
+    if (selectedRows.length < 2) return;
+    setGroupMasterId(selectedRows[0].id);
+    setGroupError(null);
+    setGroupOpen(true);
+  };
+
+  const saveGroup = async () => {
+    if (!hass) {
+      setGroupError("Home Assistant ist nicht verbunden.");
+      return;
+    }
+    const masterId = groupMasterId ?? selectedRows[0]?.id;
+    if (!masterId) return;
+
+    setGroupSaving(true);
+    setGroupError(null);
+    try {
+      const payload = buildGroupPayload(
+        selectedRows.map((e) => e.id),
+        masterId
+      );
+      const api = createV3Api(hass);
+      for (const childId of payload.child_ids) {
+        const res = await api.group(childId, payload.parent_id);
+        if (!res?.ok) throw new Error("group rejected");
+      }
+      setSelected(new Set());
+      setGroupOpen(false);
+      setGroupMasterId(null);
+      setFocusedId(payload.parent_id);
+      setDetailReload((n) => n + 1);
+      store.refresh();
+    } catch (e: unknown) {
+      setGroupError(e instanceof Error ? e.message : String(e));
+      store.refresh();
+    } finally {
+      setGroupSaving(false);
+    }
+  };
+
   const focused = focusedId ? store.getDisplayEntry(focusedId) : undefined;
-  const detailState = useEntryDetail(hass, focusedId);
+  const detailState = useEntryDetail(hass, focusedId, detailReload);
   const artwork = focusedId
     ? store.sources.find((s) => s.current_entry_id === focusedId)
         ?.current_artwork ?? null
@@ -153,6 +213,26 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
             {rows.length} Einträge · Auswahl {selected.size} · offen{" "}
             {store.dirtyCount}
           </span>
+          {selectedRows.length >= 2 ? (
+            <button
+              className="tc-btn primary"
+              type="button"
+              disabled={!hass || groupSaving}
+              onClick={openGroupDialog}
+            >
+              Gruppieren ({selectedRows.length})
+            </button>
+          ) : null}
+          {selected.size > 0 ? (
+            <button
+              className="tc-btn"
+              type="button"
+              disabled={groupSaving}
+              onClick={clearSelection}
+            >
+              Auswahl aufheben
+            </button>
+          ) : null}
         </div>
 
         <div className="tc-table-wrap">
@@ -259,6 +339,66 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
           </table>
         </div>
       </div>
+
+      {groupOpen ? (
+        <div
+          className="tc-modal-backdrop"
+          role="presentation"
+          onClick={() => {
+            if (!groupSaving) setGroupOpen(false);
+          }}
+        >
+          <div
+            className="tc-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="tc-group-title"
+            onClick={(ev) => ev.stopPropagation()}
+          >
+            <h3 id="tc-group-title">Einträge gruppieren</h3>
+            <div className="tc-group-list">
+              {selectedRows.map((entry) => (
+                <label key={entry.id} className="tc-group-option">
+                  <input
+                    type="radio"
+                    name="tc-group-master"
+                    checked={(groupMasterId ?? selectedRows[0]?.id) === entry.id}
+                    disabled={groupSaving}
+                    onChange={() => setGroupMasterId(entry.id)}
+                  />
+                  <span>
+                    <b>{entry.key}</b>
+                    <small>
+                      {entry.media_type} · {entry.signal_type}
+                    </small>
+                  </span>
+                </label>
+              ))}
+            </div>
+            {groupError ? (
+              <div className="tc-detail-error">Gruppieren fehlgeschlagen: {groupError}</div>
+            ) : null}
+            <div className="tc-modal-actions">
+              <button
+                className="tc-btn"
+                type="button"
+                disabled={groupSaving}
+                onClick={() => setGroupOpen(false)}
+              >
+                Abbrechen
+              </button>
+              <button
+                className="tc-btn primary"
+                type="button"
+                disabled={groupSaving || selectedRows.length < 2}
+                onClick={saveGroup}
+              >
+                {groupSaving ? "Speichert…" : "Speichern"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <DetailPanel
         entry={focused}

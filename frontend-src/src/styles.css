@@ -558,6 +558,74 @@ button {
   padding: 3px 8px;
 }
 
+.tc-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: rgb(0 0 0 / 56%);
+}
+
+.tc-modal {
+  width: min(560px, 100%);
+  max-height: min(680px, 92vh);
+  overflow: auto;
+  background: var(--tc-surface);
+  border: 1px solid var(--tc-border);
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: 0 18px 42px rgb(0 0 0 / 32%);
+}
+
+.tc-modal h3 {
+  margin: 0 0 12px;
+  font-size: 15px;
+}
+
+.tc-group-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.tc-group-option {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 9px 10px;
+  border: 1px solid var(--tc-border);
+  border-radius: 8px;
+  background: var(--tc-surface-raised);
+  cursor: pointer;
+}
+
+.tc-group-option span {
+  min-width: 0;
+}
+
+.tc-group-option b {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.tc-group-option small {
+  display: block;
+  margin-top: 2px;
+  color: var(--tc-text-muted);
+}
+
+.tc-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
 /* ---------------------------------------------------------------- catalog */
 
 .tc-tabs {
