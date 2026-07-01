@@ -608,6 +608,17 @@ async def test_import_roundtrip_preserves_enum_and_parent():
     assert by_key["Vv"].parent_id == by_key["Mm"].id
 
 
+def test_set_enum_casts_enum_param_to_smallint():
+    """Guard for the v2.9.1 live bug: async_set_enum reuses the enum param both
+    as a smallint column value and in `<> 0` (integer literal). Without an
+    explicit ::smallint cast, asyncpg raises AmbiguousParameterError against real
+    Postgres. FakePool can't reproduce PG type inference, so we assert the cast
+    is present in the source instead."""
+    src = open(S.__file__, encoding="utf-8").read()
+    assert "$2::smallint <> 0" in src
+    assert "WHEN $2 <> 0" not in src
+
+
 @_run
 async def test_set_enum_persists_and_view_reflects_for_active_standalone_music():
     """Regression for the panel 'enum springs back' report: set_enum on a

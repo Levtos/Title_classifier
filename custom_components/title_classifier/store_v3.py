@@ -221,8 +221,8 @@ class CatalogStoreV3:
         row = await self._pool.fetchrow(
             f"""
             UPDATE tc_v3_catalog
-               SET enum = $2,
-                   hidden_at = CASE WHEN $2 <> 0 THEN NULL ELSE hidden_at END,
+               SET enum = $2::smallint,
+                   hidden_at = CASE WHEN $2::smallint <> 0 THEN NULL ELSE hidden_at END,
                    updated_by = $3, updated_at = now()
              WHERE id = $1
             RETURNING {_CAT_COLUMNS}
