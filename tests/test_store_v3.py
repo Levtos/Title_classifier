@@ -197,6 +197,8 @@ class FakePool:
         raise AssertionError(f"unexpected fetchrow query: {q[:60]}")
 
     async def fetch(self, query, *args):
+        if "FROM tc_v3_catalog WHERE parent_id = $1" in query:
+            return [r for r in self.catalog.values() if r["parent_id"] == args[0]]
         if "FROM tc_v3_catalog" in query and "scope = $1" in query:
             rows = [r for r in self.catalog.values() if r["scope"] == args[0]]
             if "media_type = ANY" in query:
@@ -633,6 +635,55 @@ async def test_set_enum_persists_and_view_reflects_for_active_standalone_music()
     row = next(r for r in rows if r["id"] == e.id)
     assert row["enum"] == 1
     assert row["effective_enum"] == 1
+
+
+@_run
+async def test_entry_detail_returns_entry_contexts_and_override():
+    store = _store()
+    game = await store.async_seen(
+        media_type="game", signal_type="title", key="Overwatch", context="pc"
+    )
+    await store.async_seen(
+        media_type="game", signal_type="title", key="Overwatch", context="ps5"
+    )
+    await store.async_set_context_override(game.id, "ps5", 4)
+
+    detail = await store.async_entry_detail(game.id)
+    assert detail is not None
+    entry, contexts, parent, children = detail
+    assert entry.id == game.id
+    assert {c.context for c in contexts} == {"pc", "ps5"}
+    overrides = {c.context: c.enum_override for c in contexts}
+    assert overrides["ps5"] == 4
+    assert overrides["pc"] is None
+    assert parent is None
+    assert children == []
+
+
+@_run
+async def test_entry_detail_unknown_returns_none():
+    store = _store()
+    assert await store.async_entry_detail("does-not-exist") is None
+
+
+@_run
+async def test_entry_detail_parent_and_children():
+    store = _store()
+    master = await store.async_seen(
+        media_type="music", signal_type="title", key="Numb", context="homepod"
+    )
+    variant = await store.async_seen(
+        media_type="music", signal_type="title", key="Numb (Live)", context="homepod"
+    )
+    await store.async_set_parent(variant.id, master.id)
+
+    _, _, m_parent, m_children = await store.async_entry_detail(master.id)
+    assert m_parent is None
+    assert variant.id in {c.id for c in m_children}
+
+    _, _, v_parent, v_children = await store.async_entry_detail(variant.id)
+    assert v_parent is not None and v_parent.id == master.id
+    assert v_children == []
 
 
 @_run

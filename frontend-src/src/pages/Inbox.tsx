@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
+import type { Hass } from "../ha";
 import type { V3Store } from "../state/store";
+import { useEntryDetail } from "../state/detail";
 import type { Context, MediaType, SignalType } from "../state/types";
 import { CONTEXTS, MEDIA_TYPES, SIGNAL_TYPES } from "../state/types";
 import { EnumSelect } from "../components/EnumSelect";
@@ -10,7 +12,7 @@ function shortTime(ts: string): string {
   return isNaN(d.getTime()) ? ts : d.toLocaleString();
 }
 
-export function Inbox({ store }: { store: V3Store }) {
+export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
   const [search, setSearch] = useState("");
   const [media, setMedia] = useState<MediaType | "">("");
   const [signal, setSignal] = useState<SignalType | "">("");
@@ -44,6 +46,11 @@ export function Inbox({ store }: { store: V3Store }) {
     });
 
   const focused = focusedId ? store.getDisplayEntry(focusedId) : undefined;
+  const detailState = useEntryDetail(hass, focusedId);
+  const artwork = focusedId
+    ? store.sources.find((s) => s.current_entry_id === focusedId)
+        ?.current_artwork ?? null
+    : null;
 
   return (
     <div className="tc-inbox">
@@ -205,6 +212,8 @@ export function Inbox({ store }: { store: V3Store }) {
 
       <DetailPanel
         entry={focused}
+        detail={detailState}
+        artwork={artwork}
         onDraftEnum={store.setDraftEnum}
         onApply={store.applyDraft}
         onReset={store.resetDraft}

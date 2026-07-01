@@ -2,7 +2,13 @@
 // hass.callWS — the only HA coupling. Wired into the pages from PR2 onwards.
 
 import type { Hass } from "../ha";
-import type { Context, MediaType, V3Entry, V3Source } from "../state/types";
+import type {
+  Context,
+  MediaType,
+  V3Entry,
+  V3EntryDetail,
+  V3Source,
+} from "../state/types";
 
 const NS = "title_classifier/v3";
 
@@ -22,6 +28,8 @@ export function createV3Api(hass: Hass) {
     listSources: () => ws<V3Source[]>("list_sources"),
     listEntries: (params: ListEntriesParams = {}) =>
       ws<V3Entry[]>("list_entries", params),
+    entryDetail: (entry_id: string) =>
+      ws<V3EntryDetail>("entry_detail", { entry_id }),
     setEnum: (entry_id: string, enumValue: number) =>
       ws<{ ok: boolean; enum: number }>("set_enum", {
         entry_id,
