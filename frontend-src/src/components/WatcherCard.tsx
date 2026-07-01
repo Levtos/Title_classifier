@@ -1,4 +1,5 @@
 import type { MediaType, V3Source } from "../state/types";
+import { mediaTypeClass } from "../state/media";
 
 const MEDIA_LABEL: Record<MediaType, string> = {
   music: "Musik",
@@ -9,7 +10,7 @@ const MEDIA_LABEL: Record<MediaType, string> = {
 export function WatcherCard({ s }: { s: V3Source }) {
   const active = !!s.current_key;
   return (
-    <div className="tc-watcher">
+    <div className={`tc-watcher ${mediaTypeClass(s.media_type)}`}>
       {s.current_artwork ? (
         <img
           className="tc-art"

@@ -14,7 +14,7 @@
           "default_active_enum": "Aktiv-Default-Enum (z. B. Stash = 1, sonst 0)",
           "online_entity": "Online-/Verfügbarkeits-Entität (optional)",
           "artist_attribute": "Künstler-/Sender-Attribut (optional, nur Musik)",
-          "inactive_values": "Zusätzliche Inaktiv-Werte (z. B. „No Game\")",
+          "inactive_values": "Zusätzliche Inaktiv-Werte, kommagetrennt (z. B. „No Game, Paused\")",
           "artwork_entity_id": "Artwork-Entität (optional)",
           "artwork_attribute": "Artwork-Attribut (Standard: entity_picture)",
           "scope": "Scope (gleicher Wert auf beiden Instanzen = geteilt)",

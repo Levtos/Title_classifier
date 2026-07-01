@@ -89,6 +89,20 @@ SIGNAL_TYPE_OPTIONS = [
 _DB_KEYS = (CONF_DB_HOST, CONF_DB_PORT, CONF_DB_NAME, CONF_DB_USER, CONF_DB_PASSWORD)
 
 
+def _inactive_to_list(value: Any) -> list[str]:
+    """Parse inactive values from the form. A single comma-separated text field
+    (comfortable typing, no per-keystroke chip re-render) OR a legacy list."""
+    if isinstance(value, str):
+        parts = value.split(",")
+    else:
+        parts = list(value or [])
+    return [str(v).strip() for v in parts if str(v).strip()]
+
+
+def _inactive_to_str(value: Any) -> str:
+    return ", ".join(_inactive_to_list(value))
+
+
 def _v3_axis_data(src: dict[str, Any]) -> dict[str, Any]:
     """Assemble the explicit v3 axis fields from a form/user-input dict."""
     return {
@@ -99,7 +113,7 @@ def _v3_axis_data(src: dict[str, Any]) -> dict[str, Any]:
         CONF_DEFAULT_ACTIVE_ENUM: int(src.get(CONF_DEFAULT_ACTIVE_ENUM) or 0),
         CONF_ONLINE_ENTITY: src.get(CONF_ONLINE_ENTITY) or None,
         CONF_ARTIST_ATTRIBUTE: (src.get(CONF_ARTIST_ATTRIBUTE) or "").strip() or None,
-        CONF_INACTIVE_VALUES: list(src.get(CONF_INACTIVE_VALUES) or []),
+        CONF_INACTIVE_VALUES: _inactive_to_list(src.get(CONF_INACTIVE_VALUES)),
         CONF_ARTWORK_ENTITY_ID: src.get(CONF_ARTWORK_ENTITY_ID) or None,
         CONF_ARTWORK_ATTRIBUTE: src.get(CONF_ARTWORK_ATTRIBUTE)
         or DEFAULT_ARTWORK_ATTRIBUTE,
@@ -330,8 +344,9 @@ class ConfigFlowHelper:
                 CONF_ARTIST_ATTRIBUTE, default=d.get(CONF_ARTIST_ATTRIBUTE) or ""
             ): selector.TextSelector(),
             vol.Optional(
-                CONF_INACTIVE_VALUES, default=list(d.get(CONF_INACTIVE_VALUES) or [])
-            ): selector.TextSelector(selector.TextSelectorConfig(multiple=True)),
+                CONF_INACTIVE_VALUES,
+                default=_inactive_to_str(d.get(CONF_INACTIVE_VALUES)),
+            ): selector.TextSelector(),
             vol.Optional(
                 CONF_ARTWORK_ENTITY_ID,
                 description={"suggested_value": d.get(CONF_ARTWORK_ENTITY_ID)},

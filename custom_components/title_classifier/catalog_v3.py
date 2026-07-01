@@ -75,6 +75,30 @@ def normalize_key(raw: str) -> str:
     return _NON_ALNUM.sub(" ", str(raw).lower()).strip()
 
 
+def normalized_inactive_keys(values: object) -> list[str]:
+    """Normalized identity keys for a watcher's configured inactive values.
+
+    Lets the UI hide catalog entries that match an inactive value (e.g. a stale
+    ``No Game`` row saved before the value was added). Normalisation matches
+    ``normalize_key`` so it lines up with an entry's ``normalized_key`` — and is
+    case-insensitive / whitespace-tolerant (``"No Game"`` == ``" no game "``).
+    Empty results are dropped.
+    """
+    if not values or isinstance(values, str):
+        # A single comma-separated string is also accepted (config-flow form).
+        raw = [] if not values else str(values).split(",")
+    else:
+        raw = list(values)
+    out: list[str] = []
+    for value in raw:
+        if value is None:
+            continue
+        key = normalize_key(value)
+        if key and key not in out:
+            out.append(key)
+    return out
+
+
 def validate_media_type(value: str) -> str:
     if value not in MEDIA_TYPES:
         raise ValueError(f"unknown media_type {value!r} (expected {MEDIA_TYPES})")

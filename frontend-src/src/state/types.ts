@@ -33,6 +33,9 @@ export interface V3Source {
   current_artwork: string | null;
   entry_count: number;
   unmapped_count: number;
+  /** Normalized inactive keys (configured per watcher) — used to hide stale
+   * inactive entries like "No Game" from the Inbox. */
+  inactive_keys: string[];
 }
 
 export interface V3Variant {
