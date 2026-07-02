@@ -47,7 +47,7 @@ class FakePool:
 
     # -- helpers -----------------------------------------------------------
     def _new_catalog_row(self, args) -> dict:
-        (rid, scope, mt, st, nkey, key, artist, title, album, app_name, by) = args
+        (rid, scope, mt, st, nkey, key, enum, artist, title, album, app_name, by) = args
         identity = (scope, mt, st, nkey)
         existing_id = self.identity.get(identity)
         if existing_id is not None:
@@ -55,6 +55,10 @@ class FakePool:
             row["seen_count"] += 1
             row["last_seen"] = _now()
             row["key"] = key
+            # Mirror the ON CONFLICT enum CASE: lift only while unclassified (0),
+            # never overwrite a manual enum > 0.
+            if row["enum"] == 0:
+                row["enum"] = enum
             for col, val in (
                 ("artist", artist), ("title", title),
                 ("album", album), ("app_name", app_name),
@@ -66,7 +70,7 @@ class FakePool:
         row = {k: None for k in _CAT_KEYS}
         row.update(
             id=rid, scope=scope, media_type=mt, signal_type=st,
-            normalized_key=nkey, key=key, enum=0, parent_id=None,
+            normalized_key=nkey, key=key, enum=enum, parent_id=None,
             first_seen=_now(), last_seen=_now(), seen_count=1,
             hidden_at=None, updated_by=by, updated_at=_now(),
         )
@@ -312,6 +316,77 @@ async def test_seen_validates_vocabulary():
         await store.async_seen(
             media_type="tv", signal_type="title", key="X", context="apple_tv",
         )
+
+
+# ------------------------------------------------------ stash default enum (#5)
+
+
+@_run
+async def test_seen_stash_new_entry_seeded_active():
+    """A brand-new stash sighting is stored at the stash floor (>0), never 0 —
+    stash titles must not clutter the Inbox as unclassified."""
+    store = _store()
+    entry = await store.async_seen(
+        media_type="video", signal_type="title", key="Some Scene", context="stash",
+    )
+    assert entry.enum == C.STASH_DEFAULT_ACTIVE_ENUM
+    assert entry.enum > 0
+
+
+@_run
+async def test_seen_non_stash_new_entry_stays_zero():
+    """Non-stash sightings keep the classic semantics: new entry = enum 0."""
+    store = _store()
+    entry = await store.async_seen(
+        media_type="music", signal_type="title", key="Track", context="homepod",
+    )
+    assert entry.enum == 0
+
+
+@_run
+async def test_seen_stash_does_not_overwrite_manual_enum():
+    """A manually classified enum > 0 is never overwritten by a later stash
+    sighting."""
+    store = _store()
+    entry = await store.async_seen(
+        media_type="video", signal_type="title", key="Scene", context="stash",
+    )
+    await store.async_set_enum(entry.id, 3)
+    reseen = await store.async_seen(
+        media_type="video", signal_type="title", key="Scene", context="stash",
+    )
+    assert reseen.enum == 3  # manual value preserved
+
+
+@_run
+async def test_seen_stash_lifts_existing_unclassified_zero():
+    """An entry first seen elsewhere at enum 0 gets lifted to the stash floor
+    once it is observed in the stash context."""
+    store = _store()
+    first = await store.async_seen(
+        media_type="video", signal_type="title", key="Doc", context="apple_tv",
+    )
+    assert first.enum == 0
+    lifted = await store.async_seen(
+        media_type="video", signal_type="title", key="Doc", context="stash",
+    )
+    assert lifted.id == first.id
+    assert lifted.enum == C.STASH_DEFAULT_ACTIVE_ENUM
+
+
+@_run
+async def test_seen_non_stash_reseen_keeps_zero():
+    """A non-stash re-sighting must not touch enum (still 0), proving the CASE
+    is a no-op outside stash."""
+    store = _store()
+    first = await store.async_seen(
+        media_type="music", signal_type="title", key="Song", context="homepod",
+    )
+    reseen = await store.async_seen(
+        media_type="music", signal_type="title", key="Song", context="homepod",
+    )
+    assert first.id == reseen.id
+    assert reseen.enum == 0
 
 
 # ----------------------------------------------------------------- set_enum

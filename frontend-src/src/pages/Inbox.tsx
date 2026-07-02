@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Hass } from "../ha";
 import { createV3Api } from "../api/v3";
 import type { V3Store } from "../state/store";
+import type { DisplayEntry } from "../state/drafts";
 import { useEntryDetail } from "../state/detail";
 import { buildGroupPayload } from "../state/group";
 import { sortEntries, type SortMode } from "../state/sort";
@@ -32,6 +33,10 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
   const [groupMasterId, setGroupMasterId] = useState<string | null>(null);
   const [groupSaving, setGroupSaving] = useState(false);
   const [groupError, setGroupError] = useState<string | null>(null);
+  // Snapshot of the entries selected at the moment the group dialog opened.
+  // Passive polls / a new current_key may reshuffle `rows`, but the dialog must
+  // stay pinned to what the user picked (stable master, stable payload).
+  const [groupSnapshot, setGroupSnapshot] = useState<DisplayEntry[]>([]);
 
   // Union of configured inactive keys across watchers → hide stale rows like
   // "No Game" that were saved before the value was added.
@@ -88,24 +93,62 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
       return next;
     });
 
-  const selectedRows = useMemo(
-    () => rows.filter((e) => selected.has(e.id)),
-    [rows, selected]
+  // Selection is ID-based and independent of the current filter/sort: derive the
+  // selected entries from the full catalog, not from the filtered `rows`. That
+  // way a poll or a new current_key that reshuffles `rows` never shrinks the
+  // selection (bulk actions stay stable).
+  const selectedEntries = useMemo(
+    () => store.displayEntries.filter((e) => selected.has(e.id)),
+    [store.displayEntries, selected]
   );
 
-  // Do the selected entries look like one variant cluster? (group-dialog hint)
+  // Prune only against entries that no longer exist (deleted). Never clear
+  // wholesale on filter/sort/current_key changes.
+  useEffect(() => {
+    setSelected((prev) => {
+      if (prev.size === 0) return prev;
+      const existing = new Set(store.displayEntries.map((e) => e.id));
+      let changed = false;
+      const next = new Set<string>();
+      for (const id of prev) {
+        if (existing.has(id)) next.add(id);
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [store.displayEntries]);
+
+  // "Select all visible" respects the exact filtered/sorted working list.
+  const allVisibleSelected =
+    rows.length > 0 && rows.every((e) => selected.has(e.id));
+
+  const toggleSelectVisible = () => {
+    const ids = rows.map((e) => e.id);
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allVisibleSelected) {
+        for (const id of ids) next.delete(id); // deselect only the visible ones
+      } else {
+        for (const id of ids) next.add(id); // keep off-screen selection intact
+      }
+      return next;
+    });
+  };
+
+  // Do the selected entries look like one variant cluster? (group-dialog hint).
+  // Computed from the dialog snapshot so a poll can't flip the hint mid-dialog.
   const groupIsCluster = useMemo(() => {
-    if (selectedRows.length < 2) return false;
+    if (groupSnapshot.length < 2) return false;
     const keys = new Set(
-      selectedRows.map(
+      groupSnapshot.map(
         (e) => `${e.media_type}|${e.signal_type}|${candidateKey(e.key)}`
       )
     );
     return keys.size === 1;
-  }, [selectedRows]);
+  }, [groupSnapshot]);
 
   const hideSelected = async () => {
-    for (const e of selectedRows) {
+    for (const e of selectedEntries) {
       if (!e.hidden) await store.setHidden(e.id, true);
     }
     setSelected(new Set());
@@ -115,12 +158,14 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
     setSelected(new Set());
     setGroupOpen(false);
     setGroupMasterId(null);
+    setGroupSnapshot([]);
     setGroupError(null);
   };
 
   const openGroupDialog = () => {
-    if (selectedRows.length < 2) return;
-    setGroupMasterId(selectedRows[0].id);
+    if (selectedEntries.length < 2) return;
+    setGroupSnapshot(selectedEntries);
+    setGroupMasterId(selectedEntries[0].id);
     setGroupError(null);
     setGroupOpen(true);
   };
@@ -130,14 +175,14 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
       setGroupError("Home Assistant ist nicht verbunden.");
       return;
     }
-    const masterId = groupMasterId ?? selectedRows[0]?.id;
+    const masterId = groupMasterId ?? groupSnapshot[0]?.id;
     if (!masterId) return;
 
     setGroupSaving(true);
     setGroupError(null);
     try {
       const payload = buildGroupPayload(
-        selectedRows.map((e) => e.id),
+        groupSnapshot.map((e) => e.id),
         masterId
       );
       const api = createV3Api(hass);
@@ -148,6 +193,7 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
       setSelected(new Set());
       setGroupOpen(false);
       setGroupMasterId(null);
+      setGroupSnapshot([]);
       setFocusedId(payload.parent_id);
       setDetailReload((n) => n + 1);
       store.refresh();
@@ -239,28 +285,37 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
             />
             mögliche Varianten zuerst
           </label>
+          <button
+            className="tc-btn"
+            type="button"
+            disabled={rows.length === 0}
+            onClick={toggleSelectVisible}
+            title="Wählt genau die aktuell gefilterten Einträge"
+          >
+            {allVisibleSelected ? "Sichtbare abwählen" : "Alle sichtbaren auswählen"}
+          </button>
           <span className="tc-filters-info">
             {rows.length} Einträge · Auswahl {selected.size} · offen{" "}
             {store.dirtyCount}
           </span>
-          {selectedRows.length >= 2 ? (
+          {selectedEntries.length >= 2 ? (
             <button
               className="tc-btn primary"
               type="button"
               disabled={!hass || groupSaving}
               onClick={openGroupDialog}
             >
-              Gruppieren ({selectedRows.length})
+              Gruppieren ({selectedEntries.length})
             </button>
           ) : null}
-          {selectedRows.length > 0 ? (
+          {selectedEntries.length > 0 ? (
             <button
               className="tc-btn"
               type="button"
               disabled={!hass || groupSaving}
               onClick={hideSelected}
             >
-              Ausblenden ({selectedRows.length})
+              Ausblenden ({selectedEntries.length})
             </button>
           ) : null}
           {selected.size > 0 ? (
@@ -343,42 +398,44 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
                     </td>
                     <td>{e.is_current ? e.effective_enum ?? "—" : "—"}</td>
                     <td className="tc-status-cell">
-                      {e.saving ? <span className="badge">speichert…</span> : null}
-                      {e.saveError ? <span className="badge off">Fehler</span> : null}
-                      {e.dirty ? (
-                        <span className="badge dirtybadge">geändert</span>
-                      ) : null}
-                      {e.is_current ? (
-                        <span className="badge cur">läuft</span>
-                      ) : null}
-                      {e.variants.length > 0 ? (
-                        <span className="badge var">
-                          Master · {e.variants.length}
-                        </span>
-                      ) : e.is_variant ? (
-                        <span className="badge var">Variante</span>
-                      ) : null}
-                      {e.hidden ? <span className="badge off">versteckt</span> : null}
-                      {isCand(e.id) ? (
-                        <span
-                          className="badge var"
-                          title="Mögliche Variante — nicht automatisch gruppiert"
-                        >
-                          ⛓ {candidates.get(e.id)?.clusterSize}
-                        </span>
-                      ) : null}
-                      {!(
-                        e.saving ||
-                        e.saveError ||
-                        e.dirty ||
-                        e.is_current ||
-                        e.variants.length > 0 ||
-                        e.is_variant ||
-                        e.hidden ||
-                        isCand(e.id)
-                      ) ? (
-                        <span className="tc-muted">—</span>
-                      ) : null}
+                      <div className="tc-status-badges">
+                        {e.saving ? <span className="badge">speichert…</span> : null}
+                        {e.saveError ? <span className="badge off">Fehler</span> : null}
+                        {e.dirty ? (
+                          <span className="badge dirtybadge">geändert</span>
+                        ) : null}
+                        {e.is_current ? (
+                          <span className="badge cur">läuft</span>
+                        ) : null}
+                        {e.variants.length > 0 ? (
+                          <span className="badge var">
+                            Master · {e.variants.length}
+                          </span>
+                        ) : e.is_variant ? (
+                          <span className="badge var">Variante</span>
+                        ) : null}
+                        {e.hidden ? <span className="badge off">versteckt</span> : null}
+                        {isCand(e.id) ? (
+                          <span
+                            className="badge var"
+                            title="Mögliche Variante — nicht automatisch gruppiert"
+                          >
+                            ⛓ {candidates.get(e.id)?.clusterSize}
+                          </span>
+                        ) : null}
+                        {!(
+                          e.saving ||
+                          e.saveError ||
+                          e.dirty ||
+                          e.is_current ||
+                          e.variants.length > 0 ||
+                          e.is_variant ||
+                          e.hidden ||
+                          isCand(e.id)
+                        ) ? (
+                          <span className="tc-muted">—</span>
+                        ) : null}
+                      </div>
                     </td>
                     <td className="tc-muted">
                       {e.seen_count}× · {shortTime(e.last_seen)}
@@ -442,12 +499,12 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
               Master wählen — die übrigen werden Varianten darunter:
             </p>
             <div className="tc-group-list">
-              {selectedRows.map((entry) => (
+              {groupSnapshot.map((entry) => (
                 <label key={entry.id} className="tc-group-option">
                   <input
                     type="radio"
                     name="tc-group-master"
-                    checked={(groupMasterId ?? selectedRows[0]?.id) === entry.id}
+                    checked={(groupMasterId ?? groupSnapshot[0]?.id) === entry.id}
                     disabled={groupSaving}
                     onChange={() => setGroupMasterId(entry.id)}
                   />
@@ -478,7 +535,7 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
               <button
                 className="tc-btn primary"
                 type="button"
-                disabled={groupSaving || selectedRows.length < 2}
+                disabled={groupSaving || groupSnapshot.length < 2}
                 onClick={saveGroup}
               >
                 {groupSaving ? "Speichert…" : "Speichern"}

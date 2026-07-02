@@ -30,7 +30,10 @@ export interface V3Store {
   error: string | null;
   lastSync: string | null;
   loading: boolean;
-  refresh: () => void;
+  /** True only during a user-initiated refresh — passive 5s polls never set it,
+   *  so the manual "Aktualisieren" button doesn't flicker. */
+  refreshing: boolean;
+  refresh: (manual?: boolean) => void;
   // draft API
   setDraftEnum: (id: string, value: number) => void;
   resetDraft: (id: string) => void;
@@ -53,6 +56,7 @@ export function useV3Store(hass: Hass | null): V3Store {
   const [error, setError] = useState<string | null>(null);
   const [lastSync, setLastSync] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const hassRef = useRef<Hass | null>(hass);
   hassRef.current = hass;
@@ -62,11 +66,14 @@ export function useV3Store(hass: Hass | null): V3Store {
   const started = useRef(false);
   const sigRef = useRef<string>("");
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (manual = false) => {
     const h = hassRef.current;
     if (!h || inflight.current) return;
     inflight.current = true;
     setLoading(true);
+    // Only a user-initiated refresh drives the visible button spinner. Passive
+    // polls stay optically silent (no flicker) even when they change data.
+    if (manual) setRefreshing(true);
     try {
       const api = createV3Api(h);
       const [srcs, ents] = await Promise.all([
@@ -87,6 +94,7 @@ export function useV3Store(hass: Hass | null): V3Store {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
+      if (manual) setRefreshing(false);
       inflight.current = false;
     }
   }, []);
@@ -180,6 +188,7 @@ export function useV3Store(hass: Hass | null): V3Store {
     error,
     lastSync,
     loading,
+    refreshing,
     refresh,
     setDraftEnum,
     resetDraft,

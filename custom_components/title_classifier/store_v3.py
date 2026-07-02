@@ -16,9 +16,12 @@ from typing import Any
 
 from .catalog_v3 import (
     CatalogEntryV3,
+    CONTEXT_STASH,
     ContextRow,
+    DEFAULT_ENUM,
     NO_SOURCE_APP,
     ParentGuardError,
+    STASH_DEFAULT_ACTIVE_ENUM,
     assert_can_set_parent,
     clamp_enum,
     context_allowed_for,
@@ -184,17 +187,31 @@ class CatalogStoreV3:
         context = validate_context(context)
         normalized = normalize_key(key)
 
+        # Stash inverse semantics (FLEET-43): a stash sighting means "a title is
+        # playing" ⇒ it should never sit in the Inbox as an unclassified enum 0.
+        # Seed new stash rows at STASH_DEFAULT_ACTIVE_ENUM and lift existing rows
+        # only while they are still the unclassified default (enum 0) — a manual
+        # enum > 0 always wins and is never overwritten. Non-stash sightings pass
+        # DEFAULT_ENUM, so the CASE below is a no-op for them (enum untouched on
+        # conflict, exactly as before).
+        seed_enum = (
+            STASH_DEFAULT_ACTIVE_ENUM if context == CONTEXT_STASH else DEFAULT_ENUM
+        )
+
         row = await self._pool.fetchrow(
             f"""
             INSERT INTO tc_v3_catalog
-                (id, scope, media_type, signal_type, normalized_key, key,
+                (id, scope, media_type, signal_type, normalized_key, key, enum,
                  artist, title, album, app_name,
                  first_seen, last_seen, seen_count, updated_by)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now(), now(), 1, $11)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now(), now(), 1, $12)
             ON CONFLICT (scope, media_type, signal_type, normalized_key) DO UPDATE SET
                 last_seen  = GREATEST(tc_v3_catalog.last_seen, EXCLUDED.last_seen),
                 seen_count = tc_v3_catalog.seen_count + 1,
                 key        = EXCLUDED.key,
+                enum       = CASE
+                    WHEN tc_v3_catalog.enum = 0 THEN EXCLUDED.enum
+                    ELSE tc_v3_catalog.enum END,
                 artist     = COALESCE(EXCLUDED.artist,   tc_v3_catalog.artist),
                 title      = COALESCE(EXCLUDED.title,    tc_v3_catalog.title),
                 album      = COALESCE(EXCLUDED.album,    tc_v3_catalog.album),
@@ -208,7 +225,7 @@ class CatalogStoreV3:
             RETURNING {_CAT_COLUMNS}
             """,
             new_id(), self._scope, media_type, signal_type, normalized, key,
-            artist, title, album, app_name, self._instance_id,
+            seed_enum, artist, title, album, app_name, self._instance_id,
         )
         entry = _row_to_entry(row)
         self._entries[entry.id] = entry

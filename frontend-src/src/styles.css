@@ -813,17 +813,24 @@ button {
 
 /* --------------------------------------------------- QOL: selection & status */
 
-/* Full-height, comfortable checkbox cell + clearer selection. */
+/* Full-height, comfortable checkbox cell + clearer selection. The whole cell is
+   the click target (see the td onClick in Inbox); the input is a purely visual,
+   enlarged, accent-coloured indicator (pointer-events off so the cell handles
+   the toggle, never a double-toggle). */
 .tc-check-cell {
   cursor: pointer;
   text-align: center;
-  width: 34px;
+  width: 44px;
+  padding: 0; /* let the inner area own the full row height */
 }
 .tc-check-cell input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
+  accent-color: var(--tc-accent-purple);
   pointer-events: none;
   vertical-align: middle;
+  cursor: pointer;
+  margin: 0;
 }
 .tc-table tbody tr.selected {
   background: color-mix(in srgb, var(--tc-accent-purple) 16%, transparent);
@@ -832,7 +839,13 @@ button {
   box-shadow: inset 3px 0 0 var(--tc-accent-purple);
 }
 
+/* The status cell stays a normal table cell — a single row border, aligned with
+   every other column. The badges live in an inner flex wrapper so they can wrap
+   without turning the <td> into a flex box (which broke the row divider). */
 .tc-status-cell {
+  vertical-align: middle;
+}
+.tc-status-badges {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
