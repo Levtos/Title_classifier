@@ -63,6 +63,11 @@ export interface V3Entry {
   first_seen: string;
   last_seen: string;
   seen_count: number;
+  // Context summary (from list_entries; no per-row entry_detail needed).
+  contexts: Context[];
+  last_context: Context | null;
+  context_count: number;
+  seen_count_total: number;
 }
 
 export interface V3EntryRef {

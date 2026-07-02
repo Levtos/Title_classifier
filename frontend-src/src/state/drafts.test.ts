@@ -29,6 +29,10 @@ function entry(id: string, enumValue: number): V3Entry {
     first_seen: "2026-01-01T00:00:00+00:00",
     last_seen: "2026-01-02T00:00:00+00:00",
     seen_count: 1,
+    contexts: [],
+    last_context: null,
+    context_count: 0,
+    seen_count_total: 1,
   };
 }
 

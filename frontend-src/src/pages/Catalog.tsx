@@ -3,7 +3,7 @@ import type { Hass } from "../ha";
 import type { V3Store } from "../state/store";
 import type { DisplayEntry } from "../state/drafts";
 import { useEntryDetail } from "../state/detail";
-import { mediaTypeClass } from "../state/media";
+import { mediaTypeClass, mediaTypeLabel } from "../state/media";
 import {
   buildCatalogTree,
   filterCatalog,
@@ -154,7 +154,7 @@ export function Catalog({ store, hass }: { store: V3Store; hass: Hass | null }) 
                       {r.depth > 0 ? "↳ " : ""}
                       {r.entry.key}
                     </td>
-                    <td>{r.entry.media_type}</td>
+                    <td>{mediaTypeLabel(r.entry.media_type)}</td>
                     <td>{r.entry.signal_type}</td>
                     <td>{r.entry.enum}</td>
                     <td className="tc-muted">
@@ -187,6 +187,7 @@ export function Catalog({ store, hass }: { store: V3Store; hass: Hass | null }) 
         onDraftEnum={store.setDraftEnum}
         onApply={store.applyDraft}
         onReset={store.resetDraft}
+        onHide={store.setHidden}
       />
     </div>
   );

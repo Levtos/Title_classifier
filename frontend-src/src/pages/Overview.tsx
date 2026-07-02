@@ -44,7 +44,17 @@ export function Overview({ store }: { store: V3Store }) {
         {sources.length ? (
           <div className="tc-watchers">
             {sources.map((s) => (
-              <WatcherCard key={s.entry_id} s={s} />
+              <WatcherCard
+                key={s.entry_id}
+                s={s}
+                entry={
+                  s.current_entry_id
+                    ? store.getDisplayEntry(s.current_entry_id)
+                    : undefined
+                }
+                onDraftEnum={store.setDraftEnum}
+                onApply={store.applyDraft}
+              />
             ))}
           </div>
         ) : (

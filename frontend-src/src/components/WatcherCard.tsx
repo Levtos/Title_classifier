@@ -1,5 +1,7 @@
 import type { MediaType, V3Source } from "../state/types";
+import type { DisplayEntry } from "../state/drafts";
 import { mediaTypeClass } from "../state/media";
+import { EnumSelect } from "./EnumSelect";
 
 const MEDIA_LABEL: Record<MediaType, string> = {
   music: "Musik",
@@ -7,8 +9,17 @@ const MEDIA_LABEL: Record<MediaType, string> = {
   video: "Video",
 };
 
-export function WatcherCard({ s }: { s: V3Source }) {
+interface Props {
+  s: V3Source;
+  // The currently-playing catalog entry (when known) → classify inline.
+  entry?: DisplayEntry;
+  onDraftEnum?: (id: string, value: number) => void;
+  onApply?: (id: string) => void;
+}
+
+export function WatcherCard({ s, entry, onDraftEnum, onApply }: Props) {
   const active = !!s.current_key;
+  const canClassify = active && entry && onDraftEnum && onApply;
   return (
     <div className={`tc-watcher ${mediaTypeClass(s.media_type)}`}>
       {s.current_artwork ? (
@@ -42,6 +53,25 @@ export function WatcherCard({ s }: { s: V3Source }) {
             {s.entry_count} Einträge · {s.unmapped_count} offen
           </span>
         </div>
+        {canClassify ? (
+          <div className="tc-w-classify">
+            <span className="tc-muted">Enum:</span>
+            <EnumSelect
+              value={entry!.enum}
+              dirty={entry!.dirty}
+              onChange={(v) => onDraftEnum!(entry!.id, v)}
+            />
+            {entry!.dirty ? (
+              <button
+                className="tc-btn primary tc-mini"
+                disabled={entry!.saving}
+                onClick={() => onApply!(entry!.id)}
+              >
+                {entry!.saving ? "…" : "Apply"}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </div>
   );

@@ -810,3 +810,56 @@ button {
     grid-template-columns: 1fr;
   }
 }
+
+/* --------------------------------------------------- QOL: selection & status */
+
+/* Full-height, comfortable checkbox cell + clearer selection. */
+.tc-check-cell {
+  cursor: pointer;
+  text-align: center;
+  width: 34px;
+}
+.tc-check-cell input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  pointer-events: none;
+  vertical-align: middle;
+}
+.tc-table tbody tr.selected {
+  background: color-mix(in srgb, var(--tc-accent-purple) 16%, transparent);
+}
+.tc-table tbody tr.selected td:first-child {
+  box-shadow: inset 3px 0 0 var(--tc-accent-purple);
+}
+
+.tc-status-cell {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.tc-sub {
+  color: var(--tc-text-muted);
+  font-size: 11px;
+}
+
+/* Inline classify controls on the Overview watcher cards. */
+.tc-w-classify {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* Group-dialog hint / warning. */
+.tc-hint-ok {
+  color: var(--tc-accent-green);
+  font-size: 13px;
+  margin: 4px 0 8px;
+}
+.tc-hint-warn {
+  color: var(--tc-accent-orange);
+  font-size: 13px;
+  margin: 4px 0 8px;
+}

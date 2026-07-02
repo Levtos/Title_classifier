@@ -27,6 +27,29 @@ def build_children_map(
     return out
 
 
+def summarize_contexts(rows: list[ContextRow]) -> dict[str, dict]:
+    """Aggregate context rows into a per-entry summary for the list view:
+    distinct contexts (recency-ordered), last_context, context_count and the
+    total seen_count across contexts. Pure — no DB, no guessing."""
+    by_entry: dict[str, list[ContextRow]] = {}
+    for row in rows:
+        by_entry.setdefault(row.entry_id, []).append(row)
+    out: dict[str, dict] = {}
+    for entry_id, ctx_rows in by_entry.items():
+        ordered = sorted(ctx_rows, key=lambda c: c.last_seen, reverse=True)
+        distinct: list[str] = []
+        for c in ordered:
+            if c.context not in distinct:
+                distinct.append(c.context)
+        out[entry_id] = {
+            "contexts": distinct,
+            "last_context": distinct[0] if distinct else None,
+            "context_count": len(distinct),
+            "seen_count_total": sum(c.seen_count for c in ctx_rows),
+        }
+    return out
+
+
 def entry_view(
     entry: CatalogEntryV3,
     *,
@@ -35,6 +58,7 @@ def entry_view(
     effective_enum: int | None,
     current_context: str | None,
     current_source_app: str | None,
+    summary: dict | None = None,
 ) -> dict:
     """One catalog entry as a v3 API row."""
     return {
@@ -60,6 +84,14 @@ def entry_view(
         "first_seen": entry.first_seen,
         "last_seen": entry.last_seen,
         "seen_count": entry.seen_count,
+        # Context summary (from tc_v3_entry_context), so the list shows source /
+        # sighting info without a per-row entry_detail call.
+        "contexts": summary["contexts"] if summary else [],
+        "last_context": summary["last_context"] if summary else None,
+        "context_count": summary["context_count"] if summary else 0,
+        "seen_count_total": summary["seen_count_total"]
+        if summary
+        else entry.seen_count,
     }
 
 
@@ -72,6 +104,7 @@ def select_and_view(
     unclassified: bool = False,
     include_hidden: bool = False,
     limit: int | None = None,
+    summaries: Mapping[str, dict] | None = None,
 ) -> list[dict]:
     """Filter + shape the union of catalog entries for the panel.
 
@@ -105,6 +138,7 @@ def select_and_view(
                 effective_enum=cur[0] if cur else None,
                 current_context=cur[1] if cur else None,
                 current_source_app=cur[2] if cur else None,
+                summary=summaries.get(entry.id) if summaries else None,
             )
         )
         if limit and len(out) >= limit:
