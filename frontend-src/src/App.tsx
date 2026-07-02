@@ -44,8 +44,8 @@ export function App({ hass }: Props) {
         <CommandBar
           title={meta.label}
           desc={meta.desc}
-          loading={store.loading}
-          onRefresh={store.refresh}
+          loading={store.refreshing}
+          onRefresh={() => store.refresh(true)}
         />
         <main className="tc3-main">{renderPage()}</main>
         <StatusBar

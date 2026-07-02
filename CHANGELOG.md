@@ -1,5 +1,33 @@
 # Changelog
 
+## 2.10.4 - 2026-07-02
+
+Fokussierter Inbox-/QOL-Bugfix aus 2.10.3 (sechs Punkte):
+
+- **Status-Spalte fluchtet wieder:** Die Status-Zelle war ein `display:flex`-`<td>`
+  und brach dadurch Zeilenhöhe + Border-Ausrichtung. Badges liegen jetzt in einem
+  inneren Flex-Wrapper (`.tc-status-badges`); die `<td>` bleibt normale
+  Tabellenzelle — eine einzige, saubere Row-Border pro Zeile.
+- **Größere Checkboxen:** 20×20 px, `accent-color`, Cursor; die ganze Zelle über
+  volle Zeilenhöhe klickbar. Klicks auf Enum-Dropdown/Buttons/Links toggeln die
+  Auswahl weiterhin nicht.
+- **Gruppierung stabil bei laufendem Betrieb:** Auswahl ist konsequent ID-basiert
+  und aus dem **vollen** Katalog abgeleitet (nicht aus der gefilterten Liste), der
+  Gruppieren-Dialog hält beim Öffnen einen **Snapshot** der gewählten Einträge.
+  Ein neuer `current_key`/Poll re-sortiert nur noch, invalidiert aber weder
+  Auswahl noch Dialog. Auswahl wird nur gegen wirklich verschwundene (gelöschte)
+  Entry-IDs geprunt, nie pauschal geleert.
+- **„Alle sichtbaren auswählen":** Neuer Toggle-Button, der exakt die aktuell
+  gefilterte/sortierte Arbeitsliste auswählt (bzw. abwählt) und Auswahl außerhalb
+  der Sicht unangetastet lässt; bei leerer Liste deaktiviert.
+- **Stash bekommt sinnvolles Enum > 0:** Neue Stash-Sichtungen werden im v3-Store
+  auf `STASH_DEFAULT_ACTIVE_ENUM` (1) gesetzt, unklassifizierte (Enum 0) Einträge
+  bei Stash-Sichtung angehoben — manuell gesetzte Enums > 0 bleiben unangetastet.
+  Kein Migration/Cleanup, rein per Upsert. Neue Store-Tests sichern das ab.
+- **Kein 5-Sekunden-Flackern:** Der manuelle „Aktualisieren"-Button hängt jetzt an
+  einem eigenen `refreshing`-State, den nur der explizite Klick setzt; passive
+  Polls bleiben optisch still (Signatur-Dedupe aus 2.10.3 bleibt erhalten).
+
 ## 2.5.0 - 2026-06-29
 
 - **Quellen ehrlich (Architektur-Fix):** Der Katalog ist nach `(scope, category)`
