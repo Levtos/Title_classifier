@@ -205,6 +205,9 @@ class FakePool:
                 allowed = set(args[1])
                 rows = [r for r in rows if r["media_type"] in allowed]
             return rows
+        if "FROM tc_v3_entry_context" in query and "entry_id = ANY" in query:
+            ids = set(args[0])
+            return [r for r in self.contexts.values() if r["entry_id"] in ids]
         if "FROM tc_v3_entry_context WHERE entry_id" in query:
             return [r for r in self.contexts.values() if r["entry_id"] == args[0]]
         raise AssertionError(f"unexpected fetch query: {query[:60]}")
@@ -669,6 +672,24 @@ async def test_entry_detail_returns_entry_contexts_and_override():
     assert overrides["pc"] is None
     assert parent is None
     assert children == []
+
+
+@_run
+async def test_context_rows_for_multiple_entries_one_query():
+    store = _store()
+    g1 = await store.async_seen(
+        media_type="game", signal_type="title", key="G1", context="pc"
+    )
+    await store.async_seen(
+        media_type="game", signal_type="title", key="G1", context="ps5"
+    )
+    g2 = await store.async_seen(
+        media_type="game", signal_type="title", key="G2", context="switch"
+    )
+    rows = await store.async_context_rows([g1.id, g2.id])
+    got = {(r.entry_id, r.context) for r in rows}
+    assert got == {(g1.id, "pc"), (g1.id, "ps5"), (g2.id, "switch")}
+    assert await store.async_context_rows([]) == []
 
 
 @_run

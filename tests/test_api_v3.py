@@ -91,6 +91,44 @@ def _ctx(entry_id, context, **kw) -> C.ContextRow:
     return C.ContextRow(**base)
 
 
+def test_summarize_contexts_recency_distinct_and_totals():
+    rows = [
+        _ctx("e", "pc", seen_count=5, last_seen="2026-01-01T00:00:00+00:00"),
+        _ctx("e", "ps5", seen_count=3, last_seen="2026-01-03T00:00:00+00:00"),
+        _ctx("e", "pc", source_app="x", seen_count=2, last_seen="2026-01-02T00:00:00+00:00"),
+    ]
+    s = A.summarize_contexts(rows)["e"]
+    assert s["last_context"] == "ps5"  # most recent last_seen wins
+    assert s["contexts"] == ["ps5", "pc"]  # recency order, distinct
+    assert s["context_count"] == 2
+    assert s["seen_count_total"] == 10
+
+
+def test_select_and_view_merges_context_summary():
+    e = _e("x", "Astro Bot", enum=0)
+    with_summary = A.select_and_view(
+        _entries(e),
+        {},
+        summaries={
+            "x": {
+                "contexts": ["ps5"],
+                "last_context": "ps5",
+                "context_count": 1,
+                "seen_count_total": 18,
+            }
+        },
+    )[0]
+    assert with_summary["last_context"] == "ps5"
+    assert with_summary["context_count"] == 1
+    assert with_summary["seen_count_total"] == 18
+
+    without = A.select_and_view(_entries(e), {})[0]
+    assert without["contexts"] == []
+    assert without["last_context"] is None
+    # No summary → falls back to the entry's own seen_count.
+    assert without["seen_count_total"] == e.seen_count
+
+
 def test_build_entry_detail_game_contexts_and_overrides():
     game = _e("g", "Overwatch", media_type="game", enum=0)
     contexts = [

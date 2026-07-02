@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sortInbox, type InboxSortable } from "./sort";
+import { sortEntries, sortInbox, type InboxSortable } from "./sort";
 
 function row(key: string, last: string, first = "2026-01-01T00:00:00Z"): InboxSortable {
   return { key, last_seen: last, first_seen: first };
@@ -33,5 +33,31 @@ describe("sortInbox — newest first", () => {
     const b = row("B", same, same);
     const a = row("A", same, same);
     expect(sortInbox([b, a]).map((r) => r.key)).toEqual(["A", "B"]);
+  });
+});
+
+describe("sortEntries modes", () => {
+  const a = row("Beta", "2026-01-01T10:00:00Z");
+  const b = row("Alpha", "2026-01-03T10:00:00Z");
+
+  it("newest → last_seen DESC", () => {
+    expect(sortEntries([a, b], "newest").map((r) => r.key)).toEqual([
+      "Alpha",
+      "Beta",
+    ]);
+  });
+
+  it("oldest → last_seen ASC", () => {
+    expect(sortEntries([a, b], "oldest").map((r) => r.key)).toEqual([
+      "Beta",
+      "Alpha",
+    ]);
+  });
+
+  it("title → key ASC", () => {
+    expect(sortEntries([a, b], "title").map((r) => r.key)).toEqual([
+      "Alpha",
+      "Beta",
+    ]);
   });
 });

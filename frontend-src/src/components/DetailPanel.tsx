@@ -9,6 +9,7 @@ interface Props {
   onDraftEnum: (id: string, value: number) => void;
   onApply: (id: string) => void;
   onReset: (id: string) => void;
+  onHide: (id: string, hidden: boolean) => void;
 }
 
 function fmt(ts: string | null): string {
@@ -24,6 +25,7 @@ export function DetailPanel({
   onDraftEnum,
   onApply,
   onReset,
+  onHide,
 }: Props) {
   if (!entry) {
     return (
@@ -144,6 +146,12 @@ export function DetailPanel({
           onClick={() => onReset(entry.id)}
         >
           Zurücksetzen
+        </button>
+        <button
+          className="tc-btn"
+          onClick={() => onHide(entry.id, !entry.hidden)}
+        >
+          {entry.hidden ? "Wiederherstellen" : "Ausblenden"}
         </button>
       </div>
     </aside>

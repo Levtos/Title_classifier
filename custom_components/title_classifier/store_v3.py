@@ -148,6 +148,18 @@ class CatalogStoreV3:
         )
         return [_row_to_context(r) for r in rows]
 
+    async def async_context_rows(self, entry_ids: list[str]) -> list[ContextRow]:
+        """All context rows for a set of entry ids (one query) — feeds the
+        list-level context summary without a per-row entry_detail call."""
+        if not entry_ids:
+            return []
+        rows = await self._pool.fetch(
+            f"SELECT {_CTX_COLUMNS} FROM tc_v3_entry_context "
+            "WHERE entry_id = ANY($1::uuid[])",
+            list(entry_ids),
+        )
+        return [_row_to_context(r) for r in rows]
+
     # ------------------------------------------------------------------ writes
 
     async def async_seen(

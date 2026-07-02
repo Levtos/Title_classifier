@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Hass } from "../ha";
 import { createV3Api } from "../api/v3";
 import type { V3Entry, V3Source } from "./types";
+import { computeSignature } from "./signature";
 import {
   clearDraft,
   clearSave,
@@ -15,10 +16,10 @@ import {
   type SaveMap,
 } from "./drafts";
 
-// Shared v3 data store: polls list_sources + list_entries and keeps a local
-// draft-state that survives polls (see drafts.ts). The reconcile rule is simply
-// "display = server entries with drafts overlaid", so a refresh can never
-// clobber an unsaved enum edit.
+// Shared v3 data store. Polls list_sources + list_entries but only replaces
+// React state when the data actually changed (computeSignature) — an identical
+// poll causes no re-render (no flicker / focus / scroll loss). Drafts live in a
+// separate map and survive polls.
 
 export interface V3Store {
   sources: V3Source[];
@@ -37,6 +38,8 @@ export interface V3Store {
   isDirty: (id: string) => boolean;
   getDisplayEntry: (id: string) => DisplayEntry | undefined;
   dirtyCount: number;
+  // actions
+  setHidden: (id: string, hidden: boolean) => Promise<void>;
 }
 
 const POLL_MS = 5000;
@@ -57,6 +60,7 @@ export function useV3Store(hass: Hass | null): V3Store {
   draftsRef.current = drafts;
   const inflight = useRef(false);
   const started = useRef(false);
+  const sigRef = useRef<string>("");
 
   const refresh = useCallback(async () => {
     const h = hassRef.current;
@@ -69,8 +73,12 @@ export function useV3Store(hass: Hass | null): V3Store {
         api.listSources(),
         api.listEntries({ include_hidden: true, limit: 20000 }),
       ]);
-      setSources(srcs);
-      setEntries(ents);
+      const sig = computeSignature(srcs, ents);
+      if (sig !== sigRef.current) {
+        sigRef.current = sig;
+        setSources(srcs);
+        setEntries(ents);
+      }
       setConnected(true);
       setError(null);
       setLastSync(new Date().toLocaleTimeString());
@@ -116,8 +124,8 @@ export function useV3Store(hass: Hass | null): V3Store {
         const api = createV3Api(h);
         const res = await api.setEnum(id, draft.enum);
         if (!res || !res.ok) throw new Error("set_enum rejected");
-        // Optimistic patch + drop the draft so the row stays at the new value.
         setEntries((es) => patchServerEnum(es, id, res.enum ?? draft.enum));
+        sigRef.current = ""; // force the next poll to reconcile
         setDrafts((d) => clearDraft(d, id));
         setSaves((s) => clearSave(s, id));
         refresh();
@@ -128,6 +136,21 @@ export function useV3Store(hass: Hass | null): V3Store {
             error: e instanceof Error ? e.message : String(e),
           })
         );
+      }
+    },
+    [refresh]
+  );
+
+  const setHidden = useCallback(
+    async (id: string, hidden: boolean) => {
+      const h = hassRef.current;
+      if (!h) return;
+      try {
+        await createV3Api(h).setHidden(id, hidden);
+        sigRef.current = "";
+        refresh();
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : String(e));
       }
     },
     [refresh]
@@ -164,5 +187,6 @@ export function useV3Store(hass: Hass | null): V3Store {
     isDirty,
     getDisplayEntry,
     dirtyCount: Object.keys(drafts).length,
+    setHidden,
   };
 }

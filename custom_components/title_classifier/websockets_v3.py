@@ -103,6 +103,10 @@ async def ws_v3_list_sources(hass, connection, msg) -> None:
 @websocket_api.async_response
 async def ws_v3_list_entries(hass, connection, msg) -> None:
     entries, current = _gather(hass)
+    # Per-entry context summary in one query (no per-row entry_detail).
+    store = _any_v3_store(hass)
+    rows = await store.async_context_rows(list(entries.keys())) if store else []
+    summaries = api_v3.summarize_contexts(rows)
     connection.send_result(
         msg["id"],
         api_v3.select_and_view(
@@ -112,6 +116,7 @@ async def ws_v3_list_entries(hass, connection, msg) -> None:
             unclassified=msg.get("unclassified", False),
             include_hidden=msg.get("include_hidden", False),
             limit=msg.get("limit"),
+            summaries=summaries,
         ),
     )
 

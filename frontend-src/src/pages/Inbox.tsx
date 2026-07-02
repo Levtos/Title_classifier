@@ -4,9 +4,9 @@ import { createV3Api } from "../api/v3";
 import type { V3Store } from "../state/store";
 import { useEntryDetail } from "../state/detail";
 import { buildGroupPayload } from "../state/group";
-import { sortInbox } from "../state/sort";
-import { mediaTypeClass } from "../state/media";
-import { markVariantCandidates } from "../state/variants";
+import { sortEntries, type SortMode } from "../state/sort";
+import { mediaTypeClass, mediaTypeLabel } from "../state/media";
+import { candidateKey, markVariantCandidates } from "../state/variants";
 import type { Context, MediaType, SignalType } from "../state/types";
 import { CONTEXTS, MEDIA_TYPES, SIGNAL_TYPES } from "../state/types";
 import { EnumSelect } from "../components/EnumSelect";
@@ -24,6 +24,7 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
   const [context, setContext] = useState<Context | "">("");
   const [includeHidden, setIncludeHidden] = useState(false);
   const [variantsFirst, setVariantsFirst] = useState(false);
+  const [sortMode, setSortMode] = useState<SortMode>("newest");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [detailReload, setDetailReload] = useState(0);
@@ -61,7 +62,7 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
         return false;
       return true;
     });
-    const sorted = sortInbox(filtered);
+    const sorted = sortEntries(filtered, sortMode);
     // Stable second pass: candidate clusters to the top when toggled on.
     return variantsFirst
       ? [...sorted].sort((a, b) => Number(isCand(b.id)) - Number(isCand(a.id)))
@@ -77,6 +78,7 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
     inactiveKeys,
     candidates,
     variantsFirst,
+    sortMode,
   ]);
 
   const toggleSel = (id: string) =>
@@ -90,6 +92,24 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
     () => rows.filter((e) => selected.has(e.id)),
     [rows, selected]
   );
+
+  // Do the selected entries look like one variant cluster? (group-dialog hint)
+  const groupIsCluster = useMemo(() => {
+    if (selectedRows.length < 2) return false;
+    const keys = new Set(
+      selectedRows.map(
+        (e) => `${e.media_type}|${e.signal_type}|${candidateKey(e.key)}`
+      )
+    );
+    return keys.size === 1;
+  }, [selectedRows]);
+
+  const hideSelected = async () => {
+    for (const e of selectedRows) {
+      if (!e.hidden) await store.setHidden(e.id, true);
+    }
+    setSelected(new Set());
+  };
 
   const clearSelection = () => {
     setSelected(new Set());
@@ -193,6 +213,16 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
               </option>
             ))}
           </select>
+          <select
+            className="tc-select"
+            value={sortMode}
+            onChange={(e) => setSortMode(e.target.value as SortMode)}
+            title="Sortierung"
+          >
+            <option value="newest">Neueste zuerst</option>
+            <option value="oldest">Älteste zuerst</option>
+            <option value="title">Titel A–Z</option>
+          </select>
           <label className="tc-check">
             <input
               type="checkbox"
@@ -221,6 +251,16 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
               onClick={openGroupDialog}
             >
               Gruppieren ({selectedRows.length})
+            </button>
+          ) : null}
+          {selectedRows.length > 0 ? (
+            <button
+              className="tc-btn"
+              type="button"
+              disabled={!hass || groupSaving}
+              onClick={hideSelected}
+            >
+              Ausblenden ({selectedRows.length})
             </button>
           ) : null}
           {selected.size > 0 ? (
@@ -264,20 +304,35 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
                     key={e.id}
                     className={`${mediaTypeClass(e.media_type)} ${
                       e.id === focusedId ? "focused" : ""
-                    } ${e.dirty ? "dirty" : ""}`}
+                    } ${e.dirty ? "dirty" : ""} ${
+                      selected.has(e.id) ? "selected" : ""
+                    }`}
                     onClick={() => setFocusedId(e.id)}
                   >
-                    <td>
+                    <td
+                      className="tc-check-cell"
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        toggleSel(e.id);
+                      }}
+                    >
                       <input
                         type="checkbox"
                         checked={selected.has(e.id)}
-                        onClick={(ev) => ev.stopPropagation()}
-                        onChange={() => toggleSel(e.id)}
+                        readOnly
+                        tabIndex={-1}
                       />
                     </td>
                     <td className="tc-key">{e.key}</td>
-                    <td>{e.media_type}</td>
-                    <td>{e.is_current ? e.current_context ?? "—" : "—"}</td>
+                    <td>{mediaTypeLabel(e.media_type)}</td>
+                    <td>
+                      {e.last_context ??
+                        (e.is_current ? e.current_context : null) ??
+                        "—"}
+                      {e.context_count > 1 ? (
+                        <span className="tc-sub"> +{e.context_count - 1}</span>
+                      ) : null}
+                    </td>
                     <td>{e.signal_type}</td>
                     <td>
                       <EnumSelect
@@ -287,18 +342,23 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
                       />
                     </td>
                     <td>{e.is_current ? e.effective_enum ?? "—" : "—"}</td>
-                    <td>
-                      {e.saving ? (
-                        <span className="badge">speichert…</span>
-                      ) : e.saveError ? (
-                        <span className="badge off">Fehler</span>
-                      ) : e.dirty ? (
+                    <td className="tc-status-cell">
+                      {e.saving ? <span className="badge">speichert…</span> : null}
+                      {e.saveError ? <span className="badge off">Fehler</span> : null}
+                      {e.dirty ? (
                         <span className="badge dirtybadge">geändert</span>
-                      ) : e.hidden ? (
-                        <span className="badge off">versteckt</span>
-                      ) : (
-                        <span className="tc-muted">—</span>
-                      )}
+                      ) : null}
+                      {e.is_current ? (
+                        <span className="badge cur">läuft</span>
+                      ) : null}
+                      {e.variants.length > 0 ? (
+                        <span className="badge var">
+                          Master · {e.variants.length}
+                        </span>
+                      ) : e.is_variant ? (
+                        <span className="badge var">Variante</span>
+                      ) : null}
+                      {e.hidden ? <span className="badge off">versteckt</span> : null}
                       {isCand(e.id) ? (
                         <span
                           className="badge var"
@@ -307,8 +367,22 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
                           ⛓ {candidates.get(e.id)?.clusterSize}
                         </span>
                       ) : null}
+                      {!(
+                        e.saving ||
+                        e.saveError ||
+                        e.dirty ||
+                        e.is_current ||
+                        e.variants.length > 0 ||
+                        e.is_variant ||
+                        e.hidden ||
+                        isCand(e.id)
+                      ) ? (
+                        <span className="tc-muted">—</span>
+                      ) : null}
                     </td>
-                    <td className="tc-muted">{shortTime(e.last_seen)}</td>
+                    <td className="tc-muted">
+                      {e.seen_count}× · {shortTime(e.last_seen)}
+                    </td>
                     <td>
                       {e.dirty ? (
                         <span
@@ -356,6 +430,17 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
             onClick={(ev) => ev.stopPropagation()}
           >
             <h3 id="tc-group-title">Einträge gruppieren</h3>
+            {groupIsCluster ? (
+              <p className="tc-hint-ok">⛓ Mögliche Variante erkannt.</p>
+            ) : (
+              <p className="tc-hint-warn">
+                Keine offensichtliche Varianten-Übereinstimmung erkannt. Trotzdem
+                gruppieren?
+              </p>
+            )}
+            <p className="tc-muted">
+              Master wählen — die übrigen werden Varianten darunter:
+            </p>
             <div className="tc-group-list">
               {selectedRows.map((entry) => (
                 <label key={entry.id} className="tc-group-option">
@@ -370,6 +455,9 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
                     <b>{entry.key}</b>
                     <small>
                       {entry.media_type} · {entry.signal_type}
+                      {entry.variants.length > 0
+                        ? ` · bestehende Gruppe (${entry.variants.length})`
+                        : ""}
                     </small>
                   </span>
                 </label>
@@ -407,6 +495,7 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
         onDraftEnum={store.setDraftEnum}
         onApply={store.applyDraft}
         onReset={store.resetDraft}
+        onHide={store.setHidden}
       />
     </div>
   );
