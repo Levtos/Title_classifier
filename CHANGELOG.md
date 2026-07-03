@@ -1,5 +1,38 @@
 # Changelog
 
+## 3.0.0 - 2026-07-03 — Offizieller Title Classifier v3
+
+Der Versionssprung macht die **React/TypeScript/Vite-Verwaltungsmaske („v3")**
+zum offiziellen Hauptstand. Funktional baut v3.0.0 additiv auf v2.11.0 auf — kein
+Backend-Refactor, keine Migration, keine Breaking-API-Änderung.
+
+- **Quelle/Context sichtbar (Inbox + Katalog):** Neben der Medienart zeigt ein
+  kompakter Source-Badge, woher ein Titel kommt — PS5 / PC / Switch / HomePod /
+  Apple TV / Stash, inkl. `source_app` (z.B. „Apple TV · Netflix") und `+N` für
+  weitere Quellen. Rein aus den `list_entries`-Feldern abgeleitet (contexts /
+  last_context / context_count / current_source_app) — keine neue API, keine
+  Detail-Abfrage pro Zeile. Fallback „—" wenn keine Quelle bekannt.
+- **Varianten-Assistent:** Neuer Button „🪄 Varianten-Vorschlag" in der Inbox
+  wählt den besten sichtbaren Varianten-Cluster automatisch aus, öffnet den
+  Gruppieren-Dialog mit sinnvoll vorausgewähltem Master und zeigt an, warum. Er
+  respektiert die aktuelle Filterung/Sortierung/Sichtbarkeit, nutzt keine
+  versteckten Einträge, bleibt ID-basiert und nutzt die Snapshot-Logik. **Kein
+  automatisches Gruppieren** — der User bestätigt final; ohne Kandidaten ist der
+  Button deaktiviert.
+- **Inbox** ist produktiv nutzbar (unklassifizierte Titel triagieren, Enum
+  setzen, gruppieren, ausblenden); **Katalog/Detailpanel/Master-Kind-Struktur/
+  Gruppierung/effective_enum-Workflow** sind Teil von v3.
+- **Settings-Status geprüft:** Die Einstellungen zeigten keinen Live-Status
+  (Placeholder), wodurch Postgres „inaktiv" wirkte. Neu: eine kleine, read-only
+  Status-Karte (Backend/Katalog-DB erreichbar, Watcher-Anzahl, Einträge, letzter
+  Sync) aus den bereits vorhandenen Store-Daten. Kein neuer Backend-Endpunkt,
+  keine Zugangsdaten. Die vollständige Settings-/Diagnose-Seite bleibt ein
+  separater Folge-PR.
+- Es werden **keine Artwork-/Bilddaten** gespeichert; **keine automatische
+  Gruppierung** ohne Bestätigung.
+
+Folgepatches laufen ab hier als v3.0.1, v3.0.2, …
+
 ## 2.11.0 - 2026-07-02
 
 - **Raw-Sensoren gehen im Leerlauf nicht mehr auf `unknown`/„unavailable":** Der

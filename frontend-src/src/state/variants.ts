@@ -48,6 +48,79 @@ export function candidateKey(key: string): string {
   return `${artistSeed(artist)}|${titleSeed(title)}`;
 }
 
+export interface ClusterInput extends VariantInput {
+  normalized_key: string;
+  variants: { id: string }[];
+  seen_count_total: number;
+  first_seen: string;
+}
+
+export interface ClusterPick {
+  /** entry_ids of the chosen cluster (>= 2). */
+  ids: string[];
+  /** Pre-selected master entry_id. */
+  masterId: string;
+  /** Human-readable "why these were suggested" hint. */
+  reason: string;
+}
+
+/** Pick the single best variant cluster from the *visible* rows and prepare a
+ *  group-dialog selection — the Varianten-Assistent. Never groups; just returns
+ *  what to select + which master to preselect + why. Pure & testable.
+ *
+ *  Selection: the largest cluster; ties keep the one appearing first in the
+ *  given (already filtered/sorted) row order — deterministic, respects the view.
+ *  Master: an existing master (has variants) wins; otherwise the most-seen /
+ *  oldest / shortest-key entry, tie-broken by id for stability. */
+export function pickBestCluster(rows: ClusterInput[]): ClusterPick | null {
+  const clusters = new Map<string, ClusterInput[]>();
+  for (const e of rows) {
+    if (e.hidden) continue; // never use hidden entries (matches candidate logic)
+    if (e.parent_id !== null) continue; // top-level only
+    const ck = candidateKey(e.key);
+    if (ck === "|") continue; // no usable seed
+    const clusterKey = `${e.media_type}|${e.signal_type}|${ck}`;
+    const arr = clusters.get(clusterKey) ?? [];
+    arr.push(e);
+    clusters.set(clusterKey, arr);
+  }
+
+  // Largest cluster; Map preserves first-appearance order so a size tie keeps
+  // the earliest-in-view cluster (we only replace on strictly greater size).
+  let best: ClusterInput[] | null = null;
+  for (const members of clusters.values()) {
+    if (members.length < 2) continue;
+    if (best === null || members.length > best.length) best = members;
+  }
+  if (best === null) return null;
+
+  const master = pickMaster(best);
+  return {
+    ids: best.map((e) => e.id),
+    masterId: master.id,
+    reason: `${best.length} wahrscheinliche Varianten von „${master.key}".`,
+  };
+}
+
+function pickMaster(members: ClusterInput[]): ClusterInput {
+  return [...members].sort(compareMasterPreference)[0];
+}
+
+/** Lower = preferred master. Existing master (has variants) first, then most
+ *  seen, then oldest, then shortest normalized key, then id for stability. */
+function compareMasterPreference(a: ClusterInput, b: ClusterInput): number {
+  const am = a.variants.length > 0 ? 1 : 0;
+  const bm = b.variants.length > 0 ? 1 : 0;
+  if (am !== bm) return bm - am; // masters first
+  if (a.seen_count_total !== b.seen_count_total)
+    return b.seen_count_total - a.seen_count_total; // most seen
+  if (a.first_seen !== b.first_seen)
+    return a.first_seen < b.first_seen ? -1 : 1; // oldest first
+  if (a.normalized_key.length !== b.normalized_key.length)
+    return a.normalized_key.length - b.normalized_key.length; // shortest key
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; // stable tie-break
+}
+
 export function markVariantCandidates<T extends VariantInput>(
   entries: T[]
 ): Map<string, CandidateInfo> {
