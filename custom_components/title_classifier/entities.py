@@ -33,6 +33,7 @@ from .const import (
 from .const import CONF_ENTRY_TYPE
 from .runtime import WatcherRuntime
 from .entities_v3 import get_v3_sensors
+from . import feeder_v3 as feeder
 
 
 async def async_get_entities(
@@ -122,8 +123,11 @@ class TitleClassifierRawSensor(_BaseSensor):
         self.entity_id = f"sensor.title_classifier_{_slug(runtime)}_raw"
 
     @property
-    def native_value(self) -> str | None:
-        return self._runtime.current_key
+    def native_value(self) -> str:
+        # Idle → configurable sentinel (default "idle"), never None/unavailable.
+        return feeder.resolve_display_key(
+            self._runtime.current_key, self._runtime.idle_value
+        )
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:

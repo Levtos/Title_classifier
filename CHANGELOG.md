@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.11.0 - 2026-07-02
+
+- **Raw-Sensoren gehen im Leerlauf nicht mehr auf `unknown`/„unavailable":** Der
+  Raw-/Titel-Sensor (`sensor.title_classifier_<slug>_raw`) gab bei „nichts läuft"
+  `None` zurück → HA rendert das als `unknown` (in Binding-Diagnosen als
+  „unavailable" gelistet). Er zeigt jetzt einen konfigurierbaren **Idle-Wert**
+  (Default `"idle"`) und bleibt damit immer ein gültiger String. Der Enum-Sensor
+  war schon sauber (Leerlauf = 0). Gilt für v3- **und** v2-Watcher.
+- **Neues Watcher-Feld „Idle-Wert":** Pro Watcher im Formular (Anlegen +
+  Reconfigure) einstellbar. Default `"idle"` steht bereits in der
+  Feeder-Default-Inaktiv-Liste → jeder Title-Classifier-Konsument behandelt ihn
+  automatisch als inaktiv (kein Phantom-Titel im Katalog). Wer ein sprechendes
+  Label wie `"No Game"` setzt, trägt es bei den Konsumenten selbst als
+  Inaktiv-Wert ein. Der `key`-Sensor-Attribut bleibt ehrlich (`None` im Leerlauf).
+
 ## 2.10.4 - 2026-07-02
 
 Fokussierter Inbox-/QOL-Bugfix aus 2.10.3 (sechs Punkte):

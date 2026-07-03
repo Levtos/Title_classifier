@@ -34,6 +34,17 @@ _ARTIST_ATTRS: tuple[str, ...] = (
 )
 
 
+def resolve_display_key(current_key: str | None, idle_value: str) -> str:
+    """Raw-sensor display value: the live key, or the configured idle sentinel
+    when nothing is playing.
+
+    Keeps the raw/title sensor from ever going ``None`` (HA ``unknown`` /
+    ``unavailable``) — a stable string means downstream binding checks stay green
+    and the idle state is expressible as a declared inactive value.
+    """
+    return current_key if current_key else idle_value
+
+
 def build_inactive_values(extra: Iterable[str] | None) -> frozenset[str]:
     """Merge the configured per-watcher inactive values with the defaults."""
     merged = set(DEFAULT_INACTIVE_VALUES)

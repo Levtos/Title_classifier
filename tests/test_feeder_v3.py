@@ -144,3 +144,20 @@ def test_stash_video_title_from_sensor():
         state="Some Scene", attributes={}, is_sensor=True, inactive_values=_IV,
     )
     assert key == "Some Scene"
+
+
+# --------------------------------------------------- raw-sensor idle display
+
+
+def test_resolve_display_key_returns_live_key_when_playing():
+    assert F.resolve_display_key("Astro Bot", "idle") == "Astro Bot"
+
+
+def test_resolve_display_key_falls_back_to_idle_when_none():
+    # None (nothing playing) → the configured idle sentinel, never None.
+    assert F.resolve_display_key(None, "idle") == "idle"
+    assert F.resolve_display_key(None, "No Game") == "No Game"
+
+
+def test_resolve_display_key_treats_empty_key_as_idle():
+    assert F.resolve_display_key("", "idle") == "idle"

@@ -24,6 +24,7 @@ from .const import (
     CONF_ARTWORK_ENTITY_ID,
     CONF_CONTEXT,
     CONF_DEFAULT_ACTIVE_ENUM,
+    CONF_IDLE_VALUE,
     CONF_INACTIVE_VALUES,
     CONF_MEDIA_TYPE,
     CONF_ONLINE_ENTITY,
@@ -32,6 +33,7 @@ from .const import (
     CONF_SOURCE_APP,
     CONF_SOURCE_ENTITY,
     DEFAULT_ARTWORK_ATTRIBUTE,
+    DEFAULT_IDLE_VALUE,
     DEFAULT_SCOPE,
 )
 from .effective import find_context_override, resolve_effective_enum
@@ -102,6 +104,10 @@ class WatcherRuntimeV3:
     @property
     def artist_attribute(self) -> str | None:
         return self.entry.data.get(CONF_ARTIST_ATTRIBUTE) or None
+
+    @property
+    def idle_value(self) -> str:
+        return self.entry.data.get(CONF_IDLE_VALUE) or DEFAULT_IDLE_VALUE
 
     @property
     def artwork_entity_id(self) -> str | None:

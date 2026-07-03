@@ -27,6 +27,7 @@ from .const import (
     CONF_DEFAULT_ACTIVE_ENUM,
     CONF_ENTRY_TYPE,
     CONF_HUB_ENTRY_ID,
+    CONF_IDLE_VALUE,
     CONF_INACTIVE_VALUES,
     CONF_MEDIA_TYPE,
     CONF_ONLINE_ENTITY,
@@ -40,6 +41,7 @@ from .const import (
     DEFAULT_ARTIST_ATTRIBUTE,
     DEFAULT_ARTWORK_ATTRIBUTE,
     DEFAULT_CATEGORY,
+    DEFAULT_IDLE_VALUE,
     DEFAULT_SCOPE,
     DOMAIN,
     ENTRY_TYPE_HUB,
@@ -114,6 +116,7 @@ def _v3_axis_data(src: dict[str, Any]) -> dict[str, Any]:
         CONF_ONLINE_ENTITY: src.get(CONF_ONLINE_ENTITY) or None,
         CONF_ARTIST_ATTRIBUTE: (src.get(CONF_ARTIST_ATTRIBUTE) or "").strip() or None,
         CONF_INACTIVE_VALUES: _inactive_to_list(src.get(CONF_INACTIVE_VALUES)),
+        CONF_IDLE_VALUE: (src.get(CONF_IDLE_VALUE) or "").strip() or DEFAULT_IDLE_VALUE,
         CONF_ARTWORK_ENTITY_ID: src.get(CONF_ARTWORK_ENTITY_ID) or None,
         CONF_ARTWORK_ATTRIBUTE: src.get(CONF_ARTWORK_ATTRIBUTE)
         or DEFAULT_ARTWORK_ATTRIBUTE,
@@ -346,6 +349,10 @@ class ConfigFlowHelper:
             vol.Optional(
                 CONF_INACTIVE_VALUES,
                 default=_inactive_to_str(d.get(CONF_INACTIVE_VALUES)),
+            ): selector.TextSelector(),
+            vol.Optional(
+                CONF_IDLE_VALUE,
+                default=d.get(CONF_IDLE_VALUE) or DEFAULT_IDLE_VALUE,
             ): selector.TextSelector(),
             vol.Optional(
                 CONF_ARTWORK_ENTITY_ID,
