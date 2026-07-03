@@ -20,6 +20,7 @@ from .const import (
     CONF_ARTIST_ATTRIBUTE,
     CONF_AUTO_HIDE_HOURS,
     CONF_CATEGORY,
+    CONF_IDLE_VALUE,
     CONF_PLATFORM,
     CONF_ONLINE_ENTITY,
     CONF_RETENTION_DAYS,
@@ -29,6 +30,7 @@ from .const import (
     DEFAULT_ARTIST_ATTRIBUTE,
     DEFAULT_CATEGORY,
     DEFAULT_ENUM,
+    DEFAULT_IDLE_VALUE,
     DEFAULT_SCOPE,
     IGNORED_RAW_VALUES,
     MEDIA_FEATURE_MARKERS,
@@ -63,6 +65,10 @@ class WatcherRuntime:
     @property
     def name(self) -> str:
         return self.entry.data[CONF_NAME]
+
+    @property
+    def idle_value(self) -> str:
+        return self.entry.data.get(CONF_IDLE_VALUE) or DEFAULT_IDLE_VALUE
 
     @property
     def source_entity(self) -> str:

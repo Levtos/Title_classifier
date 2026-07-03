@@ -15,6 +15,7 @@ from homeassistant.const import CONF_NAME
 from homeassistant.core import callback
 from homeassistant.helpers.entity import EntityCategory
 
+from . import feeder_v3 as feeder
 from .const import DOMAIN, MODULE_ID, unique_id
 from .runtime_v3 import WatcherRuntimeV3
 
@@ -105,8 +106,11 @@ class TC3RawSensor(_TC3Base):
         self.entity_id = f"sensor.title_classifier_{_slug(runtime)}_raw"
 
     @property
-    def native_value(self) -> str | None:
-        return self._runtime.current_key
+    def native_value(self) -> str:
+        # Idle → configurable sentinel (default "idle"), never None/unavailable.
+        return feeder.resolve_display_key(
+            self._runtime.current_key, self._runtime.idle_value
+        )
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:

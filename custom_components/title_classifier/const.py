@@ -52,6 +52,13 @@ CONF_ARTWORK_ATTRIBUTE = "artwork_attribute"
 CONF_INACTIVE_VALUES = "inactive_values"
 DEFAULT_ARTWORK_ATTRIBUTE = "entity_picture"
 
+# Raw-Sensor-Leerlaufwert: statt None (→ HA `unknown`/„unavailable") zeigt der
+# Raw-/Titel-Sensor im Leerlauf diesen konfigurierbaren Sentinel-String. Default
+# "idle" steht bereits in feeder.DEFAULT_INACTIVE_VALUES → jeder TC-Konsument
+# behandelt ihn automatisch als inaktiv (kein Phantom-Titel im Katalog).
+CONF_IDLE_VALUE = "idle_value"
+DEFAULT_IDLE_VALUE = "idle"
+
 WATCHER_TYPES = ("game", "media", "activity")
 DEFAULT_ARTIST_ATTRIBUTE = "media_artist"
 
