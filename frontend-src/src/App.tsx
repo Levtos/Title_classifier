@@ -21,7 +21,6 @@ interface Props {
 const PLACEHOLDER_VIEWS: Partial<Record<PageId, () => ReactElement>> = {
   diary: Diary,
   io: ImportExport,
-  settings: Settings,
 };
 
 export function App({ hass }: Props) {
@@ -33,6 +32,7 @@ export function App({ hass }: Props) {
   const renderPage = (): ReactElement => {
     if (page === "inbox") return <Inbox store={store} hass={hass} />;
     if (page === "catalog") return <Catalog store={store} hass={hass} />;
+    if (page === "settings") return <Settings store={store} />;
     if (page === "overview" || !Placeholder) return <Overview store={store} />;
     return <Placeholder />;
   };

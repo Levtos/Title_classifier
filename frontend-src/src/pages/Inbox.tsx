@@ -7,11 +7,16 @@ import { useEntryDetail } from "../state/detail";
 import { buildGroupPayload } from "../state/group";
 import { sortEntries, type SortMode } from "../state/sort";
 import { mediaTypeClass, mediaTypeLabel } from "../state/media";
-import { candidateKey, markVariantCandidates } from "../state/variants";
+import {
+  candidateKey,
+  markVariantCandidates,
+  pickBestCluster,
+} from "../state/variants";
 import type { Context, MediaType, SignalType } from "../state/types";
 import { CONTEXTS, MEDIA_TYPES, SIGNAL_TYPES } from "../state/types";
 import { EnumSelect } from "../components/EnumSelect";
 import { DetailPanel } from "../components/DetailPanel";
+import { SourceBadge } from "../components/SourceBadge";
 
 function shortTime(ts: string): string {
   const d = new Date(ts);
@@ -37,6 +42,9 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
   // Passive polls / a new current_key may reshuffle `rows`, but the dialog must
   // stay pinned to what the user picked (stable master, stable payload).
   const [groupSnapshot, setGroupSnapshot] = useState<DisplayEntry[]>([]);
+  // Why the assistant suggested this cluster (shown in the dialog); null for a
+  // manually opened dialog.
+  const [groupReason, setGroupReason] = useState<string | null>(null);
 
   // Union of configured inactive keys across watchers → hide stale rows like
   // "No Game" that were saved before the value was added.
@@ -159,6 +167,7 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
     setGroupOpen(false);
     setGroupMasterId(null);
     setGroupSnapshot([]);
+    setGroupReason(null);
     setGroupError(null);
   };
 
@@ -166,6 +175,25 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
     if (selectedEntries.length < 2) return;
     setGroupSnapshot(selectedEntries);
     setGroupMasterId(selectedEntries[0].id);
+    setGroupReason(null);
+    setGroupError(null);
+    setGroupOpen(true);
+  };
+
+  // Varianten-Assistent: find the best cluster in the *current view*, select it
+  // and open the group dialog with a preselected master + a "why" hint. It only
+  // prepares the confirmation dialog — nothing is grouped until the user saves.
+  const suggestion = useMemo(() => pickBestCluster(rows), [rows]);
+
+  const runVariantAssistant = () => {
+    if (!suggestion) return;
+    const ids = new Set(suggestion.ids);
+    const snapshot = rows.filter((e) => ids.has(e.id));
+    if (snapshot.length < 2) return;
+    setSelected(new Set(suggestion.ids));
+    setGroupSnapshot(snapshot);
+    setGroupMasterId(suggestion.masterId);
+    setGroupReason(suggestion.reason);
     setGroupError(null);
     setGroupOpen(true);
   };
@@ -194,6 +222,7 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
       setGroupOpen(false);
       setGroupMasterId(null);
       setGroupSnapshot([]);
+      setGroupReason(null);
       setFocusedId(payload.parent_id);
       setDetailReload((n) => n + 1);
       store.refresh();
@@ -294,6 +323,19 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
           >
             {allVisibleSelected ? "Sichtbare abwählen" : "Alle sichtbaren auswählen"}
           </button>
+          <button
+            className="tc-btn"
+            type="button"
+            disabled={!suggestion || groupSaving}
+            onClick={runVariantAssistant}
+            title={
+              suggestion
+                ? suggestion.reason
+                : "Keine Varianten-Vorschläge in der aktuellen Ansicht."
+            }
+          >
+            🪄 Varianten-Vorschlag
+          </button>
           <span className="tc-filters-info">
             {rows.length} Einträge · Auswahl {selected.size} · offen{" "}
             {store.dirtyCount}
@@ -381,12 +423,7 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
                     <td className="tc-key">{e.key}</td>
                     <td>{mediaTypeLabel(e.media_type)}</td>
                     <td>
-                      {e.last_context ??
-                        (e.is_current ? e.current_context : null) ??
-                        "—"}
-                      {e.context_count > 1 ? (
-                        <span className="tc-sub"> +{e.context_count - 1}</span>
-                      ) : null}
+                      <SourceBadge entry={e} />
                     </td>
                     <td>{e.signal_type}</td>
                     <td>
@@ -487,6 +524,9 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
             onClick={(ev) => ev.stopPropagation()}
           >
             <h3 id="tc-group-title">Einträge gruppieren</h3>
+            {groupReason ? (
+              <p className="tc-hint-ok">🪄 Vorschlag: {groupReason}</p>
+            ) : null}
             {groupIsCluster ? (
               <p className="tc-hint-ok">⛓ Mögliche Variante erkannt.</p>
             ) : (

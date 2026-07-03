@@ -13,6 +13,7 @@ import {
 import type { MediaType, SignalType } from "../state/types";
 import { MEDIA_TYPES, SIGNAL_TYPES } from "../state/types";
 import { DetailPanel } from "../components/DetailPanel";
+import { SourceBadge } from "../components/SourceBadge";
 
 const TABS: { id: CatalogTab; label: string }[] = [
   { id: "all", label: "Alle" },
@@ -154,7 +155,10 @@ export function Catalog({ store, hass }: { store: V3Store; hass: Hass | null }) 
                       {r.depth > 0 ? "↳ " : ""}
                       {r.entry.key}
                     </td>
-                    <td>{mediaTypeLabel(r.entry.media_type)}</td>
+                    <td className="tc-art-cell">
+                      {mediaTypeLabel(r.entry.media_type)}{" "}
+                      <SourceBadge entry={r.entry} />
+                    </td>
                     <td>{r.entry.signal_type}</td>
                     <td>{r.entry.enum}</td>
                     <td className="tc-muted">

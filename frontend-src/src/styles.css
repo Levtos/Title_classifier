@@ -852,6 +852,17 @@ button {
   align-items: center;
 }
 
+/* Source-/Context badge (Inbox + Katalog): neutral, compact, table-friendly. */
+.badge.source {
+  color: var(--tc-text);
+  border-color: var(--tc-border);
+  background: var(--tc-surface-raised);
+  white-space: nowrap;
+}
+.tc-art-cell {
+  white-space: nowrap;
+}
+
 .tc-sub {
   color: var(--tc-text-muted);
   font-size: 11px;
