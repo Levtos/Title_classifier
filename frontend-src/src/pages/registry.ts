@@ -17,9 +17,9 @@ export interface PageMeta {
 }
 
 export const PAGES: PageMeta[] = [
-  { id: "overview", label: "Übersicht", icon: "▦", desc: "Systemzustand & aktuelles Tagebuch" },
+  { id: "overview", label: "Übersicht", icon: "▦", desc: "Systemzustand & aktueller Titel" },
   { id: "inbox", label: "Inbox", icon: "✉", desc: "Unklassifizierte Einträge abarbeiten" },
-  { id: "diary", label: "Tagebuch", icon: "⏱", desc: "Verlauf der Sichtungen" },
+  { id: "diary", label: "Trace", icon: "◎", desc: "Diagnose im Katalog-Detailpanel" },
   { id: "catalog", label: "Katalog", icon: "▤", desc: "Bibliothek & Pflege" },
   { id: "io", label: "Import / Export", icon: "⇅", desc: "v3-JSON, bildfrei" },
   { id: "settings", label: "Einstellungen", icon: "⚙", desc: "Watcher, DB, Theme, Debug" },
