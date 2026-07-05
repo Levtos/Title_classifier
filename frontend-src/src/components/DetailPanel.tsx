@@ -95,7 +95,20 @@ export function DetailPanel({
           onError={(e) => ((e.currentTarget as HTMLImageElement).style.display = "none")}
         />
       ) : null}
-      <h3 className="tc-detail-title">{entry.key}</h3>
+      <div className="tc-detail-title-row">
+        <h3 className="tc-detail-title">{entry.key}</h3>
+        {onOpenDiagnosis ? (
+          <button
+            className="tc-icon-btn"
+            type="button"
+            aria-label="Diagnose öffnen"
+            title="Diagnose öffnen"
+            onClick={() => onOpenDiagnosis(entry.id)}
+          >
+            ⓘ
+          </button>
+        ) : null}
+      </div>
       <div className="tc-detail-badges">
         <span className={`badge ${entry.media_type}`}>{entry.media_type}</span>
         <span className="badge">{entry.signal_type}</span>
@@ -179,19 +192,7 @@ export function DetailPanel({
 
       {showTrace ? (
         <section className="tc-detail-section tc-trace">
-          <div className="tc-trace-head-row">
-            <h4>Trace</h4>
-            {onOpenDiagnosis ? (
-              <button
-                className="tc-btn tc-mini"
-                type="button"
-                onClick={() => onOpenDiagnosis(entry.id)}
-                title="Große Diagnoseansicht für diesen Eintrag öffnen"
-              >
-                Diagnose öffnen
-              </button>
-            ) : null}
-          </div>
+          <h4>Trace</h4>
 
           <div className="tc-trace-mini">
             <span className="tc-muted">Stored</span> <b>{entry.serverEnum}</b>

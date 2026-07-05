@@ -16,6 +16,7 @@ import type { Context, MediaType, SignalType } from "../state/types";
 import { CONTEXTS, MEDIA_TYPES, SIGNAL_TYPES } from "../state/types";
 import { EnumSelect } from "../components/EnumSelect";
 import { DetailPanel } from "../components/DetailPanel";
+import { DiagnosisModal } from "../components/DiagnosisModal";
 import { SourceBadge } from "../components/SourceBadge";
 
 function shortTime(ts: string): string {
@@ -34,6 +35,9 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [detailReload, setDetailReload] = useState(0);
+  // Read-only diagnosis overlay — independent of selection / drafts / group
+  // dialog, so opening it never disturbs the Inbox working state.
+  const [diagOpen, setDiagOpen] = useState(false);
   const [groupOpen, setGroupOpen] = useState(false);
   const [groupMasterId, setGroupMasterId] = useState<string | null>(null);
   const [groupSaving, setGroupSaving] = useState(false);
@@ -593,7 +597,19 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
         onApply={store.applyDraft}
         onReset={store.resetDraft}
         onHide={store.setHidden}
+        showTrace
+        onOpenDiagnosis={() => setDiagOpen(true)}
       />
+
+      {diagOpen ? (
+        <DiagnosisModal
+          entryId={focusedId}
+          entry={focused}
+          detail={detailState}
+          connected={store.connected}
+          onClose={() => setDiagOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }
