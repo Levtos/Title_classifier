@@ -1,5 +1,42 @@
 # Changelog
 
+## 3.2.0 - 2026-07-05 — Catalog Trace / Diagnose
+
+Statt einer eigenständigen Tagebuch-Seite bekommt der Katalog eine **read-only
+Trace-/Diagnose-Ansicht pro Eintrag**. Der Katalog bleibt die Hauptarbeitsfläche.
+**Rein Frontend** — keine neue API, kein Backend-Refactor, keine Migration; alles
+aus vorhandenen `list_entries`/`entry_detail`-Feldern.
+
+- **Trace / Diagnose im Katalog-Detailpanel:** neuer Abschnitt erklärt pro
+  Eintrag, warum ein `effective_enum` entsteht — „Aktuelle Entscheidung"
+  (Stored Enum, katalog-abgeleiteter Enum, Live-Effective wenn laufend, Quelle
+  des Werts, Grundtext), „Beteiligte Faktoren" (Medienart, Signal, Kontexte,
+  Source App, Master + Master-Enum, Hidden, Läuft) und aggregierte „Sichtungen".
+- **Decision Trace (ehrlich, nicht geraten):** neuer reiner Helper
+  `explainEffectiveEnum` spiegelt den Backend-Resolver (`effective.py`):
+  eigener Enum · Enum 0 = unklassifiziert · music/video-Variante übernimmt
+  Master-Enum · Game-Varianten erben **nicht**. Verwaiste Variante / noch
+  ladender Master ⇒ ehrlich „nicht vollständig erklärbar mit aktuellen Daten"
+  statt Falschaussage. Weicht der Live-Wert ab, weist der Trace auf
+  Online-Gate / Watcher-Floor (z.B. Stash ⇒ 1) / aktiven Kontext-Override hin —
+  diese liegen außerhalb der Katalogdaten.
+- **Sichtungsverlauf pro Eintrag:** aggregierte Sichtungen pro Kontext
+  (Quelle · Nx · zuletzt …, source_app falls vorhanden), zuletzt-gesehen zuerst
+  mit stabilem Tie-Breaker. Ehrlicher Empty-State, wenn nichts erfasst ist —
+  **keine Fake-Historie** (Einzel-Events werden nicht gespeichert).
+- **Vererbung erklärt:** Master zeigt „Master · N Varianten" + Variantenliste;
+  Kind zeigt Master-Titel + Master-Enum und ob der Wert vom Master kommt;
+  verwaiste Variante wird klar als solche ausgewiesen. Nur anzeigen — **keine
+  automatische Reparatur**, keine mehrstufige Struktur.
+- **Navigation „Tagebuch" → „Trace":** die linke Route heißt jetzt „Trace" und
+  verweist ehrlich in den Katalog („Trace befindet sich im Katalog-Detailpanel …")
+  inklusive „Katalog öffnen"-Button. **Keine globale Timeline, keine
+  Audit-Historie**, solange keine Einzel-Events gespeichert werden.
+- Bestehende v3.1.0-Funktionen (Zu Gruppe hinzufügen / Master wechseln / Aus
+  Gruppe lösen / Ausblenden / Wiederherstellen) bleiben unverändert erhalten.
+- **Keine Artwork-/Bilddaten** gespeichert; Trace ist read-only und beeinflusst
+  keine HA-Automationen.
+
 ## 3.1.0 - 2026-07-05 — Katalog als Verwaltungsseite
 
 Fokussierter Catalog-Management-Release. Der Katalog wird nach der Inbox die

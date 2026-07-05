@@ -335,6 +335,7 @@ export function Catalog({ store, hass }: { store: V3Store; hass: Hass | null }) 
         onUngroup={doUngroup}
         groupBusy={groupBusy}
         groupError={groupError}
+        showTrace
       />
     </div>
   );

@@ -28,7 +28,7 @@ export function Sidebar({ current, onSelect }: Props) {
           </button>
         ))}
       </nav>
-      <div className="foot">Title Classifier v3.1 · UX</div>
+      <div className="foot">Title Classifier v3.2 · UX</div>
     </aside>
   );
 }

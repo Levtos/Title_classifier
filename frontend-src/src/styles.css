@@ -815,6 +815,50 @@ button {
   margin-bottom: 3px;
 }
 
+/* -------------------------------------------------------- trace / diagnose */
+
+.tc-trace-block {
+  background: var(--tc-surface-raised);
+  border: 1px solid var(--tc-border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+}
+
+.tc-trace-head {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--tc-text-muted);
+  margin-bottom: 4px;
+}
+
+.tc-trace-reason {
+  margin: 6px 0 0;
+  font-size: 12px;
+}
+
+.tc-sightings {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+
+.tc-sightings li {
+  padding: 3px 0;
+  border-bottom: 1px solid var(--tc-border);
+}
+
+.tc-sightings li:last-child {
+  border-bottom: none;
+}
+
+.tc-trace-debug {
+  font-size: 11px;
+  margin: 4px 0 0;
+}
+
 @media (max-width: 870px) {
   .tc3 {
     grid-template-columns: 1fr;

@@ -7,7 +7,7 @@ import { CommandBar } from "./components/CommandBar";
 import { StatusBar } from "./components/StatusBar";
 import { Overview } from "./pages/Overview";
 import { Inbox } from "./pages/Inbox";
-import { Diary } from "./pages/Diary";
+import { Trace } from "./pages/Trace";
 import { Catalog } from "./pages/Catalog";
 import { ImportExport } from "./pages/ImportExport";
 import { Settings } from "./pages/Settings";
@@ -19,7 +19,6 @@ interface Props {
 // Placeholder pages (replaced PR by PR). Pages that consume the live store are
 // rendered explicitly below.
 const PLACEHOLDER_VIEWS: Partial<Record<PageId, () => ReactElement>> = {
-  diary: Diary,
   io: ImportExport,
 };
 
@@ -32,6 +31,7 @@ export function App({ hass }: Props) {
   const renderPage = (): ReactElement => {
     if (page === "inbox") return <Inbox store={store} hass={hass} />;
     if (page === "catalog") return <Catalog store={store} hass={hass} />;
+    if (page === "diary") return <Trace onOpenCatalog={() => setPage("catalog")} />;
     if (page === "settings") return <Settings store={store} />;
     if (page === "overview" || !Placeholder) return <Overview store={store} />;
     return <Placeholder />;
