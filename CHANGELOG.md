@@ -1,5 +1,34 @@
 # Changelog
 
+## 3.2.2 - 2026-07-05 — Diagnose als Modal statt Menüseite
+
+UX-Korrektur zu v3.2.1: Trace ist keine eigene Hauptseite mehr, sondern eine
+Diagnoseansicht direkt aus dem Katalog. **Rein Frontend** — keine neue API, kein
+Backend-Refactor, keine Migration (pytest unverändert 189).
+
+- **Trace-Menüpunkt aus der Sidebar entfernt.** Navigation ist wieder klar:
+  Übersicht · Inbox · Katalog · Import/Export · Einstellungen.
+- **Trace-Seite/Route entfernt** (inkl. Hash-Deep-Link-Helper aus v3.2.1) — kein
+  toter Menüeintrag, keine leere Seite ohne Entry-ID. Eine spätere echte
+  Systemdiagnose gehört in die Settings-Seite (Folge-PR).
+- **Diagnose als Modal:** Der Button im Katalog-Detailpanel heißt jetzt
+  **„Diagnose öffnen"** und öffnet ein großes React-Overlay (kein Browser-Popup)
+  für den gewählten Eintrag. Schließbar per Button, Escape und Klick außerhalb.
+- **Breite Diagnoseansicht:** 2-Spalten-Karten (Aktuelle Entscheidung,
+  Beteiligte Faktoren, Vererbung/Varianten) plus breite Sichtungstabelle
+  (Kontext, App, Sicht., Override, Eff., erstmals, zuletzt) — nutzt die Breite
+  besser als das rechte Detailpanel.
+- **Titel prominent:** der Eintragstitel steht als Überschrift oben, darunter
+  Medienart, Quelle/Context-Badges, source_app und Status-Badges.
+- **Mini-Trace im Katalog bleibt** kompakt (Stored→Effective, kurzer Grund,
+  Master-Hinweis, Sichtungen kurz); Katalog-Aktionen (Gruppe/Hidden) und das
+  Inbox-Detailpanel unverändert.
+- **Kein Duplikat-Code:** Modal und Mini-Trace teilen dasselbe View-Model
+  (`buildTraceView`, `resolveTraceState`, `explainEffectiveEnum`,
+  `sortSightings`) aus v3.2.1.
+- **Keine globale Audit-Historie**, solange keine Einzel-Events gespeichert
+  werden; **keine neue Backend-API**; **keine Artwork-Daten** gespeichert.
+
 ## 3.2.1 - 2026-07-05 — Trace Full View
 
 Hybrid-Trace: kompakt im Katalog, groß auf der eigenen Seite. **Rein Frontend** —

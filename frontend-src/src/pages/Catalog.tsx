@@ -22,6 +22,7 @@ import {
 import type { Context, MediaType, SignalType } from "../state/types";
 import { CONTEXTS, MEDIA_TYPES, SIGNAL_TYPES } from "../state/types";
 import { DetailPanel } from "../components/DetailPanel";
+import { DiagnosisModal } from "../components/DiagnosisModal";
 import { SourceBadge } from "../components/SourceBadge";
 
 const TABS: { id: CatalogTab; label: string }[] = [
@@ -53,15 +54,7 @@ function shortTime(ts: string): string {
   return isNaN(d.getTime()) ? ts : d.toLocaleString();
 }
 
-export function Catalog({
-  store,
-  hass,
-  onOpenTrace,
-}: {
-  store: V3Store;
-  hass: Hass | null;
-  onOpenTrace?: (entryId: string) => void;
-}) {
+export function Catalog({ store, hass }: { store: V3Store; hass: Hass | null }) {
   const [tab, setTab] = useState<CatalogTab>("all");
   const [search, setSearch] = useState("");
   const [media, setMedia] = useState<MediaType | "">("");
@@ -72,6 +65,7 @@ export function Catalog({
   const [detailReload, setDetailReload] = useState(0);
   const [groupBusy, setGroupBusy] = useState(false);
   const [groupError, setGroupError] = useState<string | null>(null);
+  const [diagOpen, setDiagOpen] = useState(false);
 
   const rows = useMemo<Row[]>(() => {
     const subset = selectByTab(store.displayEntries, tab);
@@ -344,8 +338,18 @@ export function Catalog({
         groupBusy={groupBusy}
         groupError={groupError}
         showTrace
-        onOpenTrace={onOpenTrace}
+        onOpenDiagnosis={() => setDiagOpen(true)}
       />
+
+      {diagOpen ? (
+        <DiagnosisModal
+          entryId={focusedId}
+          entry={focused}
+          detail={detailState}
+          connected={store.connected}
+          onClose={() => setDiagOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }
