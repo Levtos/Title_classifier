@@ -1,5 +1,30 @@
 # Changelog
 
+## 3.2.3 - 2026-07-05 — Diagnose-Zugang vereinheitlicht
+
+Kleiner UX/QOL-Patch: Diagnose ist jetzt aus **Inbox und Katalog** gleich
+erreichbar. **Rein Frontend** — keine neue API, kein Backend-Refactor, keine
+Migration (pytest unverändert 189).
+
+- **Diagnose-Modal auch aus der Inbox:** das Inbox-Detailpanel öffnet dieselbe
+  `DiagnosisModal`-Komponente für den gewählten Eintrag — read-only, ohne Drafts,
+  Auswahl oder den Gruppieren-Dialog zu berühren; passive Polls schließen es
+  nicht, die Auswahl bleibt nach dem Schließen erhalten.
+- **Einheitlicher Zugang als Info-Symbol:** der Textbutton „Diagnose öffnen" im
+  Mini-Trace ist weg; stattdessen ein kompaktes **ⓘ** im Detailpanel-Header
+  neben dem Titel — in Inbox und Katalog identisch, mit `title`/`aria-label`
+  „Diagnose öffnen". Kein Verwechseln mit Apply/Reset/Hidden/Gruppenaktionen.
+- **Konsistente Detailpanels:** Inbox und Katalog nutzen jetzt dieselbe
+  DetailPanel-Struktur inkl. kompaktem Mini-Trace (Stored→Effective, kurzer
+  Grund, Sichtungen kurz). Seitenspezifisches bleibt getrennt: Katalog-Gruppen-
+  verwaltung nur im Katalog, Inbox-Draft/Apply/Reset nur in der Inbox.
+- **Kein Duplikat-Code:** beide Seiten teilen `DiagnosisModal`, `buildTraceView`,
+  `resolveTraceState`, `explainEffectiveEnum` und `sortSightings`; das
+  Diagnose-View-Model ist quellenunabhängig (Inbox = Katalog).
+- **Kein Trace-Menüpunkt**, keine eigene Trace-Seite; **keine globale
+  Audit-Historie**; **keine neue Backend-API**; **keine Artwork-Daten**
+  gespeichert.
+
 ## 3.2.2 - 2026-07-05 — Diagnose als Modal statt Menüseite
 
 UX-Korrektur zu v3.2.1: Trace ist keine eigene Hauptseite mehr, sondern eine

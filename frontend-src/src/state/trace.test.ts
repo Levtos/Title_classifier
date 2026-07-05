@@ -273,3 +273,32 @@ describe("resolveTraceState", () => {
     ).toBe("notfound");
   });
 });
+
+describe("diagnosis view model is source-agnostic (Inbox = Katalog)", () => {
+  // The same DiagnosisModal + buildTraceView drive both panels. buildTraceView
+  // takes only entry data — never a "which page" flag — so an identical entry
+  // yields an identical diagnosis whether opened from the Inbox or the Katalog.
+  const catalogEntry = {
+    media_type: "music" as const,
+    storedEnum: 3,
+    parentId: null,
+    detailLoaded: true,
+    parentRef: null,
+    contexts: [],
+    isCurrent: false,
+    liveEffective: null,
+  };
+
+  it("produces the same view for the same entry regardless of caller", () => {
+    const fromCatalog = buildTraceView(catalogEntry);
+    const fromInbox = buildTraceView({ ...catalogEntry });
+    expect(fromInbox).toEqual(fromCatalog);
+  });
+
+  it("explains a typical unclassified Inbox entry (enum 0)", () => {
+    const v = buildTraceView({ ...catalogEntry, storedEnum: 0 });
+    expect(v.trace.source).toBe("unclassified");
+    expect(v.trace.effectiveEnum).toBe(0);
+    expect(v.trace.explainable).toBe(true);
+  });
+});

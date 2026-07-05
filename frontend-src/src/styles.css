@@ -712,6 +712,41 @@ button {
   word-break: break-word;
 }
 
+/* Header row: title + compact diagnosis info-icon (Inbox + Katalog, identical). */
+.tc-detail-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.tc-detail-title-row .tc-detail-title {
+  margin: 0;
+  min-width: 0;
+}
+
+.tc-icon-btn {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  border: 1px solid var(--tc-border);
+  background: var(--tc-surface-raised);
+  color: var(--tc-text-muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tc-icon-btn:hover {
+  border-color: var(--tc-accent-purple);
+  color: var(--tc-text);
+}
+
 .tc-detail-badges {
   display: flex;
   gap: 6px;
@@ -824,18 +859,7 @@ button {
 
 /* -------------------------------------------------------- trace / diagnose */
 
-/* Compact mini-trace inside the Katalog detail panel. */
-.tc-trace-head-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.tc-trace-head-row h4 {
-  margin: 0;
-}
-
+/* Compact mini-trace inside the detail panel (Inbox + Katalog). */
 .tc-trace-mini {
   margin-top: 6px;
   font-size: 13px;
