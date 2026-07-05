@@ -756,6 +756,25 @@ button {
   margin-bottom: 12px;
 }
 
+.tc-detail-group-cur {
+  font-size: 12px;
+  color: var(--tc-text-muted);
+  margin-bottom: 8px;
+}
+
+.tc-detail-group-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.tc-detail-group-row .tc-select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .tc-detail-section {
   margin-bottom: 14px;
 }

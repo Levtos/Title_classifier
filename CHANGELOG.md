@@ -1,5 +1,47 @@
 # Changelog
 
+## 3.1.0 - 2026-07-05 — Katalog als Verwaltungsseite
+
+Fokussierter Catalog-Management-Release. Der Katalog wird nach der Inbox die
+zweite echte Arbeitsfläche: Bestand verwalten, Gruppen pflegen, versteckte
+Einträge bearbeiten, Quellen/Status/Sichtungen nachvollziehen. **Rein Frontend —
+kein Backend-Refactor, keine neue API, keine Migration.** Alle Aktionen laufen
+über die bestehenden `v3/*`-Endpunkte (`group`, `ungroup`, `set_hidden`); alle
+Zeilenfelder kommen aus dem vorhandenen `list_entries` (keine Detail-Abfrage pro
+Zeile).
+
+- **Katalog-Tabelle als Bestandsverwaltung:** Zeilen zeigen jetzt Titel,
+  Medienart (Icon + Text), Quelle/Context-Badge inkl. `source_app` (z.B.
+  „Apple TV · Netflix"), Enum (mit `→effective`-Hinweis während ein Titel läuft),
+  Mehrfach-Status-Badges und Sichtungen (`seen_count_total` + zuletzt gesehen).
+- **Status-Badges (deterministisch, mit sauberem Fallback):** „läuft",
+  „Master · N Varianten", „Variante", „verwaiste Variante", „Versteckt",
+  „Enum 0". Kein `undefined`/`null` — leere Statusspalte fällt auf „—" zurück.
+- **Sortierung:** Titel A–Z / Z–A, zuletzt gesehen neueste/älteste,
+  Gruppen/Varianten zuerst, Master zuerst, Versteckte zuerst, Enum auf-/
+  absteigend. **Immer stabiler Tie-Breaker** (Titel, dann `id`) — keine zufällige
+  Reihenfolge bei gleichen Werten, kein Auswahl-/Reihenfolge-Verlust durch
+  passive Polls.
+- **Filter erweitert:** neuer Quelle/Context-Filter (PS5/PC/Switch/HomePod/
+  Apple TV/Stash) neben Suche, Medienart, Signal und den bestehenden Tabs
+  (Alle/Unsortiert/Gruppen/Ausgeblendet).
+- **Gruppenverwaltung im Detailpanel:** „Zu Gruppe hinzufügen" (Master aus einer
+  Titelliste wählen — keine UUID-Eingabe), „Master wechseln" und „Aus Gruppe
+  lösen". Die Master-Auswahl spiegelt den Backend-Guard (gleiche
+  scope/media_type/signal_type, nur Top-Level-Ziele); **eine Ebene** bleibt hart:
+  ein Master kann nicht selbst Variante werden, Kinder werden nicht zu
+  Master-Kind-Kind-Strukturen. **Keine automatische Gruppierung** — jede
+  Zuordnung ist eine bewusste User-Aktion.
+- **Hidden/Restore sauber:** Hidden-Status als Zeilen-Badge; Detailpanel bietet
+  je nach Zustand „Ausblenden" bzw. „Wiederherstellen"; versteckte Einträge
+  bleiben im Hidden-Filter gruppier- und bearbeitbar; nach der Aktion forced
+  reload und das Detailpanel schließt, wenn der Eintrag aus der aktuellen Sicht
+  fällt.
+- **Detailpanel für Katalogarbeit:** Quelle/Kontexte, `seen_count_total`,
+  Master/Kind-Status, Variantenliste und Kontext-Overrides bleiben sichtbar;
+  neue Gruppen-Aktionen mit Detail-Reload nach jeder Änderung.
+- Es werden **keine Artwork-/Bilddaten** gespeichert (kein Base64/Blob).
+
 ## 3.0.0 - 2026-07-03 — Offizieller Title Classifier v3
 
 Der Versionssprung macht die **React/TypeScript/Vite-Verwaltungsmaske („v3")**

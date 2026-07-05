@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { DisplayEntry } from "../state/drafts";
 import type { EntryDetailState } from "../state/detail";
 import { EnumSelect } from "./EnumSelect";
@@ -10,6 +11,13 @@ interface Props {
   onApply: (id: string) => void;
   onReset: (id: string) => void;
   onHide: (id: string, hidden: boolean) => void;
+  // Catalog-only group management. When omitted (Inbox) the group section is not
+  // rendered — the panel stays exactly as before.
+  masterOptions?: { id: string; key: string }[];
+  onGroup?: (childId: string, parentId: string) => void;
+  onUngroup?: (childId: string) => void;
+  groupBusy?: boolean;
+  groupError?: string | null;
 }
 
 function fmt(ts: string | null): string {
@@ -26,7 +34,16 @@ export function DetailPanel({
   onApply,
   onReset,
   onHide,
+  masterOptions,
+  onGroup,
+  onUngroup,
+  groupBusy = false,
+  groupError = null,
 }: Props) {
+  // Selected master target for "Zu Gruppe hinzufügen" / "Master wechseln".
+  // Reset whenever the focused entry changes so a stale pick can't leak across.
+  const [groupTarget, setGroupTarget] = useState("");
+  useEffect(() => setGroupTarget(""), [entry?.id]);
   if (!entry) {
     return (
       <aside className="tc-detail">
@@ -125,6 +142,66 @@ export function DetailPanel({
               </li>
             ))}
           </ul>
+        </section>
+      ) : null}
+
+      {onGroup ? (
+        <section className="tc-detail-section">
+          <h4>Gruppe</h4>
+          {entry.variants.length > 0 ? (
+            <div className="tc-muted">
+              Master dieser Gruppe — Varianten oben. Ein Master kann nicht selbst
+              Variante werden.
+            </div>
+          ) : (
+            <>
+              {entry.parent_id ? (
+                <div className="tc-detail-group-cur">
+                  Variante von <b>{d?.parent?.key ?? "…"}</b>
+                </div>
+              ) : null}
+              <div className="tc-detail-group-row">
+                <select
+                  className="tc-select"
+                  value={groupTarget}
+                  disabled={groupBusy || (masterOptions?.length ?? 0) === 0}
+                  onChange={(e) => setGroupTarget(e.target.value)}
+                >
+                  <option value="">
+                    {(masterOptions?.length ?? 0) === 0
+                      ? "Kein passender Master"
+                      : "Master wählen …"}
+                  </option>
+                  {(masterOptions ?? []).map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.key}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  className="tc-btn primary"
+                  type="button"
+                  disabled={!groupTarget || groupBusy}
+                  onClick={() => onGroup(entry.id, groupTarget)}
+                >
+                  {entry.parent_id ? "Master wechseln" : "Zu Gruppe hinzufügen"}
+                </button>
+              </div>
+              {entry.parent_id && onUngroup ? (
+                <button
+                  className="tc-btn"
+                  type="button"
+                  disabled={groupBusy}
+                  onClick={() => onUngroup(entry.id)}
+                >
+                  Aus Gruppe lösen
+                </button>
+              ) : null}
+            </>
+          )}
+          {groupError ? (
+            <div className="tc-detail-error">Gruppe: {groupError}</div>
+          ) : null}
         </section>
       ) : null}
 
