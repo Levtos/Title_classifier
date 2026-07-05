@@ -1,5 +1,35 @@
 # Changelog
 
+## 3.2.1 - 2026-07-05 — Trace Full View
+
+Hybrid-Trace: kompakt im Katalog, groß auf der eigenen Seite. **Rein Frontend** —
+keine neue API, kein Backend-Refactor, keine Migration (pytest unverändert 189).
+
+- **Katalog-Detailpanel-Trace kompakter:** statt drei langer Blöcke jetzt nur
+  eine Mini-Zusammenfassung (Stored → Effective, Quelle/Grund kurz,
+  Master-Hinweis bei Variante, Sichtungen kurz) — der Detailpanel bleibt
+  Arbeitsfläche.
+- **Neuer Button „Trace groß öffnen":** öffnet die Trace-Seite für genau den
+  gewählten Eintrag, Übergabe über die stabile Entry-ID (keine UUID-Eingabe).
+- **Trace-Seite ist jetzt die große Diagnoseansicht:** breite, mehrspaltige
+  Karten für den gewählten Eintrag — Titel/Badges, „Aktuelle Entscheidung"
+  (Stored/Effective-Katalog/Effective-live, Quelle, Grundtext aus
+  `explainEffectiveEnum`), „Beteiligte Faktoren", „Vererbung/Varianten" und eine
+  breite Sichtungstabelle (Kontext, App, Sicht., Override, Eff., erstmals,
+  zuletzt).
+- **Deep-Link + Reload-Persistenz:** die Auswahl spiegelt sich im URL-Hash
+  (`#trace/<entry_id>`) und wird nach einem Reload wieder geöffnet. Passive Polls
+  zerstören die geöffnete Seite nicht; „Aktualisieren" lädt neu ohne Flackern.
+- **Saubere Zustände statt weißer Seite:** kein Eintrag ⇒ Empty-State mit
+  „Katalog öffnen"; unbekannte/ungültige ID ⇒ verständliche Fehlermeldung mit
+  „Katalog öffnen"; noch nicht verbunden ⇒ Ladezustand.
+- **Kein Duplikat-Code:** Panel-Mini und Trace-Seite teilen dieselbe Logik über
+  `buildTraceView` (wiederverwendet `explainEffectiveEnum` + `sortSightings` aus
+  v3.2.0). Bestehende Katalog-Aktionen (Gruppe/Hidden) und das Inbox-Detailpanel
+  bleiben unverändert.
+- **Keine globale Audit-Historie**, solange keine Einzel-Events gespeichert
+  werden; **keine Auto-Gruppierung**; **keine Artwork-Daten** gespeichert.
+
 ## 3.2.0 - 2026-07-05 — Catalog Trace / Diagnose
 
 Statt einer eigenständigen Tagebuch-Seite bekommt der Katalog eine **read-only

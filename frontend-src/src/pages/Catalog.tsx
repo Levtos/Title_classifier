@@ -53,7 +53,15 @@ function shortTime(ts: string): string {
   return isNaN(d.getTime()) ? ts : d.toLocaleString();
 }
 
-export function Catalog({ store, hass }: { store: V3Store; hass: Hass | null }) {
+export function Catalog({
+  store,
+  hass,
+  onOpenTrace,
+}: {
+  store: V3Store;
+  hass: Hass | null;
+  onOpenTrace?: (entryId: string) => void;
+}) {
   const [tab, setTab] = useState<CatalogTab>("all");
   const [search, setSearch] = useState("");
   const [media, setMedia] = useState<MediaType | "">("");
@@ -336,6 +344,7 @@ export function Catalog({ store, hass }: { store: V3Store; hass: Hass | null }) 
         groupBusy={groupBusy}
         groupError={groupError}
         showTrace
+        onOpenTrace={onOpenTrace}
       />
     </div>
   );

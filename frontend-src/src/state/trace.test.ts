@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildTraceView,
   enumSourceLabel,
   explainEffectiveEnum,
+  resolveTraceState,
   sortSightings,
   type EffectiveTraceInput,
   type SightingLike,
@@ -151,5 +153,123 @@ describe("sortSightings", () => {
     const before = rows.map((r) => r.context);
     sortSightings(rows);
     expect(rows.map((r) => r.context)).toEqual(before);
+  });
+});
+
+describe("buildTraceView", () => {
+  const ctx = (
+    context: SightingLike["context"],
+    last_seen: string
+  ): SightingLike => ({
+    context,
+    source_app: "",
+    seen_count: 1,
+    first_seen: "2026-01-01T00:00:00Z",
+    last_seen,
+  });
+
+  it("non-variant: parentState none, own enum, sorted sightings", () => {
+    const v = buildTraceView({
+      media_type: "music",
+      storedEnum: 3,
+      parentId: null,
+      detailLoaded: true,
+      parentRef: null,
+      contexts: [ctx("pc", "2026-01-01T00:00:00Z"), ctx("ps5", "2026-02-01T00:00:00Z")],
+      isCurrent: false,
+      liveEffective: null,
+    });
+    expect(v.parentState).toBe("none");
+    expect(v.trace.effectiveEnum).toBe(3);
+    expect(v.sightings.map((s) => s.context)).toEqual(["ps5", "pc"]);
+    expect(v.liveDiverges).toBe(false);
+  });
+
+  it("music variant with loaded master inherits the master enum", () => {
+    const v = buildTraceView({
+      media_type: "music",
+      storedEnum: 0,
+      parentId: "master-1",
+      detailLoaded: true,
+      parentRef: { key: "Kingston Town", enum: 1 },
+      contexts: [],
+      isCurrent: false,
+      liveEffective: null,
+    });
+    expect(v.parentState).toBe("available");
+    expect(v.trace.effectiveEnum).toBe(1);
+    expect(v.trace.inheritsFromMaster).toBe(true);
+  });
+
+  it("variant while detail still loading ⇒ parentState loading, not explainable", () => {
+    const v = buildTraceView({
+      media_type: "music",
+      storedEnum: 0,
+      parentId: "master-1",
+      detailLoaded: false,
+      parentRef: null,
+      contexts: [],
+      isCurrent: false,
+      liveEffective: null,
+    });
+    expect(v.parentState).toBe("loading");
+    expect(v.trace.explainable).toBe(false);
+  });
+
+  it("variant with detail loaded but no master ⇒ orphan (missing)", () => {
+    const v = buildTraceView({
+      media_type: "music",
+      storedEnum: 0,
+      parentId: "gone",
+      detailLoaded: true,
+      parentRef: null,
+      contexts: [],
+      isCurrent: false,
+      liveEffective: null,
+    });
+    expect(v.parentState).toBe("missing");
+    expect(v.trace.effectiveEnum).toBeNull();
+  });
+
+  it("flags liveDiverges when the live value differs from the catalog value", () => {
+    const v = buildTraceView({
+      media_type: "music",
+      storedEnum: 0, // catalog-derivable = 0
+      parentId: null,
+      detailLoaded: true,
+      parentRef: null,
+      contexts: [],
+      isCurrent: true,
+      liveEffective: 1, // watcher floor (e.g. stash ⇒ 1)
+    });
+    expect(v.trace.effectiveEnum).toBe(0);
+    expect(v.liveEffective).toBe(1);
+    expect(v.liveDiverges).toBe(true);
+  });
+});
+
+describe("resolveTraceState", () => {
+  it("no entry id ⇒ empty", () => {
+    expect(
+      resolveTraceState({ entryId: null, hasEntry: false, connected: true })
+    ).toBe("empty");
+  });
+
+  it("entry present ⇒ ready", () => {
+    expect(
+      resolveTraceState({ entryId: "x", hasEntry: true, connected: true })
+    ).toBe("ready");
+  });
+
+  it("id but no entry while disconnected ⇒ loading", () => {
+    expect(
+      resolveTraceState({ entryId: "x", hasEntry: false, connected: false })
+    ).toBe("loading");
+  });
+
+  it("id but no entry while connected ⇒ notfound", () => {
+    expect(
+      resolveTraceState({ entryId: "x", hasEntry: false, connected: true })
+    ).toBe("notfound");
   });
 });

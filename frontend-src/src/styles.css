@@ -817,20 +817,30 @@ button {
 
 /* -------------------------------------------------------- trace / diagnose */
 
-.tc-trace-block {
-  background: var(--tc-surface-raised);
-  border: 1px solid var(--tc-border);
-  border-radius: 8px;
-  padding: 8px 10px;
-  margin-bottom: 8px;
+/* Compact mini-trace inside the Katalog detail panel. */
+.tc-trace-head-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
-.tc-trace-head {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+.tc-trace-head-row h4 {
+  margin: 0;
+}
+
+.tc-trace-mini {
+  margin-top: 6px;
+  font-size: 13px;
+}
+
+.tc-trace-arrow {
+  margin: 0 6px;
   color: var(--tc-text-muted);
-  margin-bottom: 4px;
+}
+
+.tc-trace-live {
+  margin-left: 8px;
 }
 
 .tc-trace-reason {
@@ -838,25 +848,53 @@ button {
   font-size: 12px;
 }
 
-.tc-sightings {
-  margin: 0;
-  padding: 0;
-  list-style: none;
+.tc-trace-master {
+  margin: 4px 0 0;
   font-size: 12px;
-}
-
-.tc-sightings li {
-  padding: 3px 0;
-  border-bottom: 1px solid var(--tc-border);
-}
-
-.tc-sightings li:last-child {
-  border-bottom: none;
 }
 
 .tc-trace-debug {
   font-size: 11px;
-  margin: 4px 0 0;
+  margin: 8px 0 0;
+}
+
+/* Large Trace full view. */
+.tc-trace-hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: var(--tc-gap);
+}
+
+.tc-trace-hero-main {
+  min-width: 0;
+}
+
+.tc-trace-hero-main h2 {
+  margin: 0 0 8px;
+}
+
+.tc-trace-hero-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.tc-trace-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--tc-gap);
+}
+
+.tc-trace-grid .tc-card h3 {
+  margin-top: 0;
+}
+
+/* The sightings table is the widest card — let it span the full row. */
+.tc-trace-sightings {
+  grid-column: 1 / -1;
 }
 
 @media (max-width: 870px) {

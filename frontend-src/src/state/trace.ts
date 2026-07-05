@@ -152,3 +152,82 @@ export function sortSightings<T extends SightingLike>(rows: T[]): T[] {
       a.source_app.localeCompare(b.source_app)
   );
 }
+
+// ------------------------------------------------------------- view model
+
+export interface TraceViewInput<S extends SightingLike> {
+  media_type: MediaType;
+  /** The persisted catalog enum (serverEnum, not an unsaved draft). */
+  storedEnum: number;
+  parentId: string | null;
+  /** Whether entry_detail is loaded for THIS entry. */
+  detailLoaded: boolean;
+  /** The master ref from entry_detail (null ⇒ orphan when detail is loaded). */
+  parentRef: { key: string; enum: number } | null;
+  /** Per-context sighting aggregates from entry_detail (may be empty). */
+  contexts: S[];
+  isCurrent: boolean;
+  /** The live effective enum, already gated to null when not current. */
+  liveEffective: number | null;
+}
+
+export interface TraceView<S extends SightingLike> {
+  parentState: ParentState;
+  trace: EffectiveTrace;
+  sightings: S[];
+  liveEffective: number | null;
+  /** Live value present, catalog value explainable, and the two differ ⇒ the
+   *  live sensor added something outside the catalog (online gate / watcher
+   *  floor / active-context override). */
+  liveDiverges: boolean;
+}
+
+/** One place that turns an entry (+ its optional detail) into everything the
+ *  Trace UIs render — used by both the compact panel mini-trace and the large
+ *  Trace page, so the reasoning lives in exactly one spot. */
+export function buildTraceView<S extends SightingLike>(
+  i: TraceViewInput<S>
+): TraceView<S> {
+  const parentState: ParentState =
+    i.parentId == null
+      ? "none"
+      : !i.detailLoaded
+        ? "loading"
+        : i.parentRef
+          ? "available"
+          : "missing";
+  const trace = explainEffectiveEnum({
+    media_type: i.media_type,
+    storedEnum: i.storedEnum,
+    parentState,
+    parentEnum: i.parentRef?.enum ?? null,
+  });
+  const liveDiverges =
+    i.liveEffective !== null &&
+    trace.effectiveEnum !== null &&
+    i.liveEffective !== trace.effectiveEnum;
+  return {
+    parentState,
+    trace,
+    sightings: sortSightings(i.contexts),
+    liveEffective: i.liveEffective,
+    liveDiverges,
+  };
+}
+
+// ------------------------------------------------------- full-view gating
+
+export type TraceState = "empty" | "loading" | "notfound" | "ready";
+
+/** Decide what the Trace page should render, without touching the DOM. No
+ *  entry id ⇒ empty state; id but no entry yet ⇒ loading while disconnected,
+ *  otherwise a genuine not-found. Keeps the page from ever white-screening. */
+export function resolveTraceState(i: {
+  entryId: string | null;
+  hasEntry: boolean;
+  connected: boolean;
+}): TraceState {
+  if (!i.entryId) return "empty";
+  if (i.hasEntry) return "ready";
+  return i.connected ? "notfound" : "loading";
+}
