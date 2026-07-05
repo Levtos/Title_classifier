@@ -2,11 +2,13 @@
 // parent_id (the authoritative relation); per-entry contexts/overrides are NOT
 // built here — those are lazy-loaded per selection via v3/entry_detail.
 
-import type { MediaType, SignalType } from "./types";
+import type { Context, MediaType, SignalType } from "./types";
 
 export type CatalogTab = "all" | "unsorted" | "groups" | "hidden";
 
-// Minimal shape the tree/filter logic needs; DisplayEntry satisfies it.
+// Minimal shape the tree/filter logic needs; DisplayEntry satisfies it. The
+// context fields are optional so plain test fixtures still satisfy it — they're
+// only read by the source/context filter.
 export interface CatalogEntryLike {
   id: string;
   key: string;
@@ -14,6 +16,9 @@ export interface CatalogEntryLike {
   media_type: MediaType;
   signal_type: SignalType;
   hidden: boolean;
+  contexts?: Context[];
+  last_context?: Context | null;
+  current_context?: Context | null;
 }
 
 export interface CatalogNode<T extends CatalogEntryLike> {
@@ -92,16 +97,28 @@ export interface CatalogTextFilter {
   search?: string;
   media?: MediaType | "";
   signal?: SignalType | "";
+  context?: Context | "";
+}
+
+/** An entry matches a context filter if the context appears anywhere it is
+ *  known: its distinct contexts, its most-recent context, or (while playing) its
+ *  current context. */
+function matchesContext(e: CatalogEntryLike, ctx: Context): boolean {
+  if (e.contexts && e.contexts.includes(ctx)) return true;
+  if (e.last_context === ctx) return true;
+  if (e.current_context === ctx) return true;
+  return false;
 }
 
 export function filterCatalog<T extends CatalogEntryLike>(
   entries: T[],
-  { search = "", media = "", signal = "" }: CatalogTextFilter
+  { search = "", media = "", signal = "", context = "" }: CatalogTextFilter
 ): T[] {
   const q = search.toLowerCase().trim();
   return entries.filter((e) => {
     if (media && e.media_type !== media) return false;
     if (signal && e.signal_type !== signal) return false;
+    if (context && !matchesContext(e, context)) return false;
     if (q && !e.key.toLowerCase().includes(q)) return false;
     return true;
   });

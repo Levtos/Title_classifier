@@ -113,4 +113,20 @@ describe("filterCatalog", () => {
     expect(filterCatalog(rows, { search: "astro" }).map((r) => r.id)).toEqual(["g"]);
     expect(filterCatalog(rows, {}).length).toBe(3);
   });
+
+  it("filters by context across contexts / last_context / current_context", () => {
+    const ctxRows = [
+      e("a", "PS5 Game", null, { contexts: ["ps5"] }),
+      e("b", "Recent PC", null, { last_context: "pc" }),
+      e("c", "Now on Apple TV", null, { current_context: "apple_tv" }),
+      e("d", "No context", null),
+    ];
+    expect(filterCatalog(ctxRows, { context: "ps5" }).map((r) => r.id)).toEqual(["a"]);
+    expect(filterCatalog(ctxRows, { context: "pc" }).map((r) => r.id)).toEqual(["b"]);
+    expect(filterCatalog(ctxRows, { context: "apple_tv" }).map((r) => r.id)).toEqual([
+      "c",
+    ]);
+    // empty context filter is a no-op
+    expect(filterCatalog(ctxRows, { context: "" }).length).toBe(4);
+  });
 });
