@@ -1,12 +1,11 @@
-// Trace full view (v3.2.1). The large, read-only diagnostic for one catalog
-// entry, deep-linked by stable entry id. It reuses the same view model as the
-// compact panel mini-trace (buildTraceView) — no duplicated reasoning — and
-// never white-screens: empty / loading / not-found states are explicit.
+// Diagnosis modal (v3.2.2). The large, read-only Trace/Diagnose view for one
+// catalog entry, opened as an overlay from the Katalog detail panel — no longer
+// a sidebar page. Reuses the shared trace view model (buildTraceView) so the
+// reasoning is identical to the compact mini-trace; no duplicated logic.
 
-import { useState } from "react";
-import type { Hass } from "../ha";
-import type { V3Store } from "../state/store";
-import { useEntryDetail } from "../state/detail";
+import { useEffect } from "react";
+import type { DisplayEntry } from "../state/drafts";
+import type { EntryDetailState } from "../state/detail";
 import { mediaTypeLabel } from "../state/media";
 import { contextLabel } from "../state/source";
 import { buildTraceView, enumSourceLabel, resolveTraceState } from "../state/trace";
@@ -18,70 +17,79 @@ function fmt(ts: string | null): string {
 }
 
 interface Props {
-  store: V3Store;
-  hass: Hass | null;
   entryId: string | null;
-  onOpenCatalog: () => void;
+  entry: DisplayEntry | undefined;
+  detail: EntryDetailState;
+  connected: boolean;
+  onClose: () => void;
 }
 
-export function Trace({ store, hass, entryId, onOpenCatalog }: Props) {
-  const [reload, setReload] = useState(0);
-  const entry = entryId ? store.getDisplayEntry(entryId) : undefined;
+export function DiagnosisModal({
+  entryId,
+  entry,
+  detail,
+  connected,
+  onClose,
+}: Props) {
+  // Close on Escape — matches the group dialog's expectations.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  // Guard the rare case where a passive poll removes the focused entry while the
+  // modal is open — never white-screen the overlay.
   const state = resolveTraceState({
     entryId,
     hasEntry: entry !== undefined,
-    connected: store.connected,
+    connected,
   });
-  // Detail is loaded for the resolved entry only; passive polls keep the id
-  // stable, so the open page never gets torn down by a refresh.
-  const detailState = useEntryDetail(hass, entry ? entry.id : null, reload);
 
-  if (state === "empty") {
-    return (
-      <div className="tc-page">
-        <div className="tc-card tc-placeholder">
-          <h2>Trace / Diagnose</h2>
-          <p>Wähle einen Katalogeintrag und öffne „Trace groß".</p>
-          <button className="tc-btn primary" type="button" onClick={onOpenCatalog}>
-            Katalog öffnen
-          </button>
-        </div>
+  return (
+    <div className="tc-modal-backdrop" role="presentation" onClick={onClose}>
+      <div
+        className="tc-modal tc-modal-wide"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="tc-diag-title"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {state !== "ready" || !entry ? (
+          <div className="tc-placeholder">
+            <h2 id="tc-diag-title">Diagnose</h2>
+            <p>
+              {state === "loading"
+                ? "Eintrag wird geladen …"
+                : "Eintrag nicht gefunden — er existiert nicht (mehr) oder ist nicht geladen."}
+            </p>
+            <div className="tc-modal-actions">
+              <button className="tc-btn primary" type="button" onClick={onClose}>
+                Schließen
+              </button>
+            </div>
+          </div>
+        ) : (
+          <DiagnosisBody entry={entry} detail={detail} onClose={onClose} />
+        )}
       </div>
-    );
-  }
+    </div>
+  );
+}
 
-  if (state === "loading") {
-    return (
-      <div className="tc-page">
-        <div className="tc-card tc-placeholder">
-          <h2>Trace / Diagnose</h2>
-          <p>Eintrag wird geladen …</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (state === "notfound" || !entry) {
-    return (
-      <div className="tc-page">
-        <div className="tc-card tc-placeholder">
-          <h2>Eintrag nicht gefunden</h2>
-          <p>
-            Der referenzierte Katalogeintrag existiert nicht (mehr) oder ist
-            nicht geladen.
-          </p>
-          <button className="tc-btn primary" type="button" onClick={onOpenCatalog}>
-            Katalog öffnen
-          </button>
-        </div>
-      </div>
-    );
-  }
-
+function DiagnosisBody({
+  entry,
+  detail,
+  onClose,
+}: {
+  entry: DisplayEntry;
+  detail: EntryDetailState;
+  onClose: () => void;
+}) {
   const d =
-    detailState.detail && detailState.detail.id === entry.id
-      ? detailState.detail
-      : null;
+    detail.detail && detail.detail.id === entry.id ? detail.detail : null;
   const { parentState, trace, sightings, liveEffective, liveDiverges } =
     buildTraceView({
       media_type: entry.media_type,
@@ -98,10 +106,12 @@ export function Trace({ store, hass, entryId, onOpenCatalog }: Props) {
     });
 
   return (
-    <div className="tc-page">
-      <div className="tc-card tc-trace-hero">
+    <>
+      <div className="tc-trace-hero">
         <div className="tc-trace-hero-main">
-          <h2>{entry.key}</h2>
+          <h2 id="tc-diag-title" className="tc-detail-title">
+            {entry.key}
+          </h2>
           <div className="tc-detail-badges">
             <span className={`badge ${entry.media_type}`}>
               {mediaTypeLabel(entry.media_type)}
@@ -121,19 +131,8 @@ export function Trace({ store, hass, entryId, onOpenCatalog }: Props) {
           </div>
         </div>
         <div className="tc-trace-hero-actions">
-          <button
-            className="tc-btn"
-            type="button"
-            onClick={() => {
-              store.refresh(true);
-              setReload((n) => n + 1);
-            }}
-            disabled={store.refreshing}
-          >
-            {store.refreshing ? "…" : "Aktualisieren"}
-          </button>
-          <button className="tc-btn" type="button" onClick={onOpenCatalog}>
-            Katalog öffnen
+          <button className="tc-btn" type="button" onClick={onClose}>
+            Schließen
           </button>
         </div>
       </div>
@@ -222,8 +221,8 @@ export function Trace({ store, hass, entryId, onOpenCatalog }: Props) {
 
         <section className="tc-card tc-trace-sightings">
           <h3>Sichtungen{d ? ` (${sightings.length})` : ""}</h3>
-          {detailState.error ? (
-            <div className="tc-detail-error">Detail-Fehler: {detailState.error}</div>
+          {detail.error ? (
+            <div className="tc-detail-error">Detail-Fehler: {detail.error}</div>
           ) : null}
           {sightings.length ? (
             <table className="tc-ctx-table">
@@ -268,6 +267,6 @@ export function Trace({ store, hass, entryId, onOpenCatalog }: Props) {
           ? "Read-only · beeinflusst keine HA-Automationen · keine vollständige Event-Historie, solange Einzelereignisse nicht gespeichert werden."
           : "* nicht vollständig erklärbar mit aktuellen Daten. Read-only · beeinflusst keine HA-Automationen · keine vollständige Event-Historie, solange Einzelereignisse nicht gespeichert werden."}
       </p>
-    </div>
+    </>
   );
 }

@@ -22,8 +22,8 @@ interface Props {
   groupError?: string | null;
   // Catalog-only read-only Trace/Diagnose section. Omitted (Inbox) ⇒ not shown.
   showTrace?: boolean;
-  // Opens the large Trace page for this entry. Omitted ⇒ no "Trace groß öffnen".
-  onOpenTrace?: (entryId: string) => void;
+  // Opens the large diagnosis modal for this entry. Omitted ⇒ no button.
+  onOpenDiagnosis?: (entryId: string) => void;
 }
 
 function fmt(ts: string | null): string {
@@ -46,7 +46,7 @@ export function DetailPanel({
   groupBusy = false,
   groupError = null,
   showTrace = false,
-  onOpenTrace,
+  onOpenDiagnosis,
 }: Props) {
   // Selected master target for "Zu Gruppe hinzufügen" / "Master wechseln".
   // Reset whenever the focused entry changes so a stale pick can't leak across.
@@ -181,14 +181,14 @@ export function DetailPanel({
         <section className="tc-detail-section tc-trace">
           <div className="tc-trace-head-row">
             <h4>Trace</h4>
-            {onOpenTrace ? (
+            {onOpenDiagnosis ? (
               <button
                 className="tc-btn tc-mini"
                 type="button"
-                onClick={() => onOpenTrace(entry.id)}
+                onClick={() => onOpenDiagnosis(entry.id)}
                 title="Große Diagnoseansicht für diesen Eintrag öffnen"
               >
-                Trace groß öffnen
+                Diagnose öffnen
               </button>
             ) : null}
           </div>
