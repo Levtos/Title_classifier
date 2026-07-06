@@ -39,6 +39,11 @@ ENTRY_TYPE_WATCHER = "watcher"
 CONF_HUB_ENTRY_ID = "hub_entry_id"
 HUB_TITLE = "Title Classifier DB"
 
+# v3.3 subentry model: v3 watchers can be added as config subentries UNDER the
+# DB hub, so they appear as nested devices instead of separate top-level entries.
+# Additive — existing top-level watcher entries keep working unchanged.
+SUBENTRY_TYPE_WATCHER = "watcher"
+
 # v3 watcher axes (FLEET-195/196) — explicit config, never heuristic. media_type/
 # context/signal_type vocabularies live in catalog_v3; these are the entry keys.
 ENTRY_TYPE_WATCHER_V3 = "watcher_v3"

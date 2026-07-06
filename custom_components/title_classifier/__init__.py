@@ -27,6 +27,7 @@ from .const import (
     ENTRY_TYPE_WATCHER,
     ENTRY_TYPE_WATCHER_V3,
     MODULE_ID,
+    SUBENTRY_TYPE_WATCHER,
     WATCHER_TYPE_TO_CATEGORY,
     service_name,
 )
@@ -55,6 +56,18 @@ from .websockets_impl import WEBSOCKETS  # re-export
 from .websockets_v3 import WEBSOCKETS_V3  # re-export
 
 _LOGGER = logging.getLogger(__name__)
+
+
+class _SubentryWatcher:
+    """Adapts a ConfigSubentry to the minimal ConfigEntry surface the v3 watcher
+    runtime + entities use (``.data`` + ``.entry_id``). Lets a watcher run as a
+    nested subentry under the hub with zero changes to WatcherRuntimeV3."""
+
+    def __init__(self, subentry) -> None:
+        self.data = subentry.data
+        # entities/runtime key device + unique_id off this; subentry_id is stable.
+        self.entry_id = subentry.subentry_id
+
 
 PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.NUMBER, Platform.BUTTON]
 # v3 watchers expose only sensors (effective enum / raw / catalog).
@@ -120,15 +133,43 @@ async def _async_setup_hub(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await async_release_pool(hass, dsn)
         raise ConfigEntryNotReady(f"Medien-Katalog-DB nicht erreichbar: {err}") from err
 
+    # Set up any v3 watcher subentries nested under this hub. Each becomes its
+    # own runtime + device sharing the hub's pool/listener. Failures are logged
+    # and skipped so one bad subentry never blocks the hub.
+    subentry_runtimes: dict[str, WatcherRuntimeV3] = {}
+    for sub_id, subentry in entry.subentries.items():
+        if subentry.subentry_type != SUBENTRY_TYPE_WATCHER:
+            continue
+        adapter = _SubentryWatcher(subentry)
+        store = CatalogStoreV3(
+            pool,
+            scope=subentry.data.get(CONF_SCOPE, DEFAULT_SCOPE),
+            instance_id=inst,
+        )
+        runtime = WatcherRuntimeV3(hass, adapter, store)
+        try:
+            await runtime.async_setup()
+        except Exception:  # noqa: BLE001 — never let one subentry break the hub
+            _LOGGER.exception("Watcher-Subentry %s Setup fehlgeschlagen", sub_id)
+            continue
+        subentry_runtimes[sub_id] = runtime
+
     hass.data[DOMAIN][DATA_ENTRIES][entry.entry_id] = {
         "module_id": MODULE_ID,
         "entry_type": ENTRY_TYPE_HUB,
         "dsn": dsn,
+        "subentry_runtimes": subentry_runtimes,
         "status": "ready",
     }
-    # Attach all watchers to this hub (strip any embedded legacy DB), so the
-    # connection lives in one place from now on.
+    # Attach all top-level watchers to this hub (strip any embedded legacy DB),
+    # so the connection lives in one place from now on.
     _attach_watchers_to_hub(hass, entry)
+
+    if subentry_runtimes:
+        await hass.config_entries.async_forward_entry_setups(entry, V3_PLATFORMS)
+        await async_register_v3_panel(hass)
+    # Reload on change so adding/removing/reconfiguring a subentry re-runs setup.
+    entry.async_on_unload(entry.add_update_listener(_async_reload_on_options))
     return True
 
 
@@ -256,27 +297,42 @@ def _attach_watchers_to_hub(hass: HomeAssistant, hub: ConfigEntry) -> None:
         # Preserve a v3 watcher's type; only legacy/unset entries become v2.
         new[CONF_ENTRY_TYPE] = d.get(CONF_ENTRY_TYPE) or ENTRY_TYPE_WATCHER
         new[CONF_HUB_ENTRY_ID] = hub.entry_id
+        # Only touch/reload a watcher whose data actually changed — otherwise a
+        # hub reload (e.g. after a subentry change) would needlessly churn every
+        # top-level watcher.
         if new != dict(d):
             hass.config_entries.async_update_entry(entry, data=new)
-        hass.async_create_task(hass.config_entries.async_reload(entry.entry_id))
-        _LOGGER.info("Attached watcher %s to hub %s", entry.entry_id, hub.entry_id)
+            hass.async_create_task(hass.config_entries.async_reload(entry.entry_id))
+            _LOGGER.info("Attached watcher %s to hub %s", entry.entry_id, hub.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry_type = entry.data.get(CONF_ENTRY_TYPE)
+    entries = hass.data.get(DOMAIN, {}).get(DATA_ENTRIES, {})
+    bucket = entries.get(entry.entry_id)
     unload_ok = True
     if entry_type == ENTRY_TYPE_WATCHER_V3:
         unload_ok = await hass.config_entries.async_unload_platforms(entry, V3_PLATFORMS)
-    elif entry_type != ENTRY_TYPE_HUB:
+    elif entry_type == ENTRY_TYPE_HUB:
+        # The hub only forwards a platform when it has watcher subentries.
+        if bucket and bucket.get("subentry_runtimes"):
+            unload_ok = await hass.config_entries.async_unload_platforms(
+                entry, V3_PLATFORMS
+            )
+    else:
         unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-    bucket = hass.data.get(DOMAIN, {}).get(DATA_ENTRIES, {}).pop(entry.entry_id, None)
-    runtime = bucket.get("runtime") if bucket else None
-    if runtime is not None:
-        await runtime.async_unload()
-    dsn = bucket.get("dsn") if bucket else None
-    if dsn is not None:
-        await async_release_listener(hass, dsn)
-        await async_release_pool(hass, dsn)
+
+    bucket = entries.pop(entry.entry_id, None)
+    if bucket:
+        runtime = bucket.get("runtime")
+        if runtime is not None:
+            await runtime.async_unload()
+        for sub_runtime in (bucket.get("subentry_runtimes") or {}).values():
+            await sub_runtime.async_unload()
+        dsn = bucket.get("dsn")
+        if dsn is not None:
+            await async_release_listener(hass, dsn)
+            await async_release_pool(hass, dsn)
     return unload_ok
 
 

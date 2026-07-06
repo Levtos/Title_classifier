@@ -88,6 +88,11 @@ def _load(modname: str, filename: str):
 
 const = _load("const", "const.py")
 
+# flow_data.py is HA-free (only imports const) — load it for the subentry /
+# watcher-data contract tests.
+flow_data = _load("flow_data", "flow_data.py")
+sys.modules["tc_flow_data"] = flow_data
+
 # storage.py imports `make_store` from the standalone storage helper; we don't
 # exercise the actual disk store in these tests, so stub the import target.
 _storage_helper = types.ModuleType("tc_pure_pkg.storage_helper")

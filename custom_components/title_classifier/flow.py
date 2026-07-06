@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 import voluptuous as vol
-from homeassistant.config_entries import ConfigEntry, OptionsFlow
+from homeassistant.config_entries import ConfigEntry, ConfigSubentryFlow, OptionsFlow
 from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResult
@@ -91,37 +91,90 @@ SIGNAL_TYPE_OPTIONS = [
 _DB_KEYS = (CONF_DB_HOST, CONF_DB_PORT, CONF_DB_NAME, CONF_DB_USER, CONF_DB_PASSWORD)
 
 
-def _inactive_to_list(value: Any) -> list[str]:
-    """Parse inactive values from the form. A single comma-separated text field
-    (comfortable typing, no per-keystroke chip re-render) OR a legacy list."""
-    if isinstance(value, str):
-        parts = value.split(",")
-    else:
-        parts = list(value or [])
-    return [str(v).strip() for v in parts if str(v).strip()]
+# Pure form-data assembly lives in flow_data (HA-free, unit-tested). Aliased to
+# the existing private names so the rest of this module is unchanged.
+from .flow_data import inactive_to_list as _inactive_to_list  # noqa: E402
+from .flow_data import inactive_to_str as _inactive_to_str  # noqa: E402
+from .flow_data import v3_axis_data as _v3_axis_data  # noqa: E402
+from .flow_data import watcher_subentry_data  # noqa: E402
 
 
-def _inactive_to_str(value: Any) -> str:
-    return ", ".join(_inactive_to_list(value))
+def v3_watcher_schema(d: dict[str, Any] | None = None) -> vol.Schema:
+    """Explicit v3 axis form. ``d`` prefills (reconfigure); None = add.
 
+    Module-level so both the top-level config flow and the hub's watcher
+    subentry flow share one schema.
+    """
+    d = d or {}
 
-def _v3_axis_data(src: dict[str, Any]) -> dict[str, Any]:
-    """Assemble the explicit v3 axis fields from a form/user-input dict."""
-    return {
-        CONF_MEDIA_TYPE: src[CONF_MEDIA_TYPE],
-        CONF_CONTEXT: src[CONF_CONTEXT],
-        CONF_SIGNAL_TYPE: src.get(CONF_SIGNAL_TYPE, "title"),
-        CONF_SOURCE_APP: (src.get(CONF_SOURCE_APP) or "").strip() or None,
-        CONF_DEFAULT_ACTIVE_ENUM: int(src.get(CONF_DEFAULT_ACTIVE_ENUM) or 0),
-        CONF_ONLINE_ENTITY: src.get(CONF_ONLINE_ENTITY) or None,
-        CONF_ARTIST_ATTRIBUTE: (src.get(CONF_ARTIST_ATTRIBUTE) or "").strip() or None,
-        CONF_INACTIVE_VALUES: _inactive_to_list(src.get(CONF_INACTIVE_VALUES)),
-        CONF_IDLE_VALUE: (src.get(CONF_IDLE_VALUE) or "").strip() or DEFAULT_IDLE_VALUE,
-        CONF_ARTWORK_ENTITY_ID: src.get(CONF_ARTWORK_ENTITY_ID) or None,
-        CONF_ARTWORK_ATTRIBUTE: src.get(CONF_ARTWORK_ATTRIBUTE)
-        or DEFAULT_ARTWORK_ATTRIBUTE,
-        CONF_SCOPE: src.get(CONF_SCOPE) or DEFAULT_SCOPE,
-    }
+    def sel(options):
+        return selector.SelectSelector(
+            selector.SelectSelectorConfig(options=options, mode="dropdown")
+        )
+
+    schema: dict[Any, Any] = {}
+    if not d:  # name + source only chosen at creation
+        schema[vol.Required(CONF_NAME)] = selector.TextSelector()
+        schema[vol.Required(CONF_SOURCE_ENTITY)] = selector.EntitySelector(
+            selector.EntitySelectorConfig(domain=["media_player", "sensor"])
+        )
+    schema.update({
+        vol.Required(
+            CONF_MEDIA_TYPE, default=d.get(CONF_MEDIA_TYPE, MEDIA_TYPES[0])
+        ): sel(MEDIA_TYPE_OPTIONS),
+        vol.Required(
+            CONF_CONTEXT, default=d.get(CONF_CONTEXT, CONTEXTS[0])
+        ): sel(CONTEXT_OPTIONS),
+        vol.Required(
+            CONF_SIGNAL_TYPE, default=d.get(CONF_SIGNAL_TYPE, "title")
+        ): sel(SIGNAL_TYPE_OPTIONS),
+        vol.Optional(
+            CONF_SOURCE_APP, default=d.get(CONF_SOURCE_APP) or ""
+        ): selector.TextSelector(),
+        vol.Optional(
+            CONF_DEFAULT_ACTIVE_ENUM,
+            default=int(d.get(CONF_DEFAULT_ACTIVE_ENUM) or 0),
+        ): selector.NumberSelector(
+            selector.NumberSelectorConfig(min=MIN_ENUM, max=MAX_ENUM, step=1, mode="box")
+        ),
+        vol.Optional(
+            CONF_ONLINE_ENTITY,
+            description={"suggested_value": d.get(CONF_ONLINE_ENTITY)},
+        ): selector.EntitySelector(
+            selector.EntitySelectorConfig(
+                domain=["binary_sensor", "switch", "sensor", "input_boolean"]
+            )
+        ),
+        vol.Optional(
+            CONF_ARTIST_ATTRIBUTE, default=d.get(CONF_ARTIST_ATTRIBUTE) or ""
+        ): selector.TextSelector(),
+        vol.Optional(
+            CONF_INACTIVE_VALUES,
+            default=_inactive_to_str(d.get(CONF_INACTIVE_VALUES)),
+        ): selector.TextSelector(),
+        vol.Optional(
+            CONF_IDLE_VALUE,
+            default=d.get(CONF_IDLE_VALUE) or DEFAULT_IDLE_VALUE,
+        ): selector.TextSelector(),
+        vol.Optional(
+            CONF_ARTWORK_ENTITY_ID,
+            description={"suggested_value": d.get(CONF_ARTWORK_ENTITY_ID)},
+        ): selector.EntitySelector(),
+        vol.Optional(
+            CONF_ARTWORK_ATTRIBUTE,
+            default=d.get(CONF_ARTWORK_ATTRIBUTE) or DEFAULT_ARTWORK_ATTRIBUTE,
+        ): selector.TextSelector(),
+        vol.Required(
+            CONF_SCOPE, default=d.get(CONF_SCOPE, DEFAULT_SCOPE)
+        ): selector.TextSelector(),
+        vol.Optional(
+            CONF_RETENTION_DAYS,
+            description={"suggested_value": d.get(CONF_RETENTION_DAYS)},
+        ): selector.NumberSelector(
+            selector.NumberSelectorConfig(min=1, step=1, mode="box")
+        ),
+    })
+    return vol.Schema(schema)
 
 
 def existing_db_config(hass: HomeAssistant) -> dict[str, Any] | None:
@@ -302,77 +355,9 @@ class ConfigFlowHelper:
         )
 
     def _v3_watcher_schema(self, d: dict[str, Any] | None = None) -> vol.Schema:
-        """Explicit v3 axis form. ``d`` prefills (reconfigure); None = add."""
-        d = d or {}
-
-        def sel(options):
-            return selector.SelectSelector(
-                selector.SelectSelectorConfig(options=options, mode="dropdown")
-            )
-
-        schema: dict[Any, Any] = {}
-        if not d:  # name + source only chosen at creation
-            schema[vol.Required(CONF_NAME)] = selector.TextSelector()
-            schema[vol.Required(CONF_SOURCE_ENTITY)] = selector.EntitySelector(
-                selector.EntitySelectorConfig(domain=["media_player", "sensor"])
-            )
-        schema.update({
-            vol.Required(
-                CONF_MEDIA_TYPE, default=d.get(CONF_MEDIA_TYPE, MEDIA_TYPES[0])
-            ): sel(MEDIA_TYPE_OPTIONS),
-            vol.Required(
-                CONF_CONTEXT, default=d.get(CONF_CONTEXT, CONTEXTS[0])
-            ): sel(CONTEXT_OPTIONS),
-            vol.Required(
-                CONF_SIGNAL_TYPE, default=d.get(CONF_SIGNAL_TYPE, "title")
-            ): sel(SIGNAL_TYPE_OPTIONS),
-            vol.Optional(
-                CONF_SOURCE_APP, default=d.get(CONF_SOURCE_APP) or ""
-            ): selector.TextSelector(),
-            vol.Optional(
-                CONF_DEFAULT_ACTIVE_ENUM,
-                default=int(d.get(CONF_DEFAULT_ACTIVE_ENUM) or 0),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=MIN_ENUM, max=MAX_ENUM, step=1, mode="box")
-            ),
-            vol.Optional(
-                CONF_ONLINE_ENTITY,
-                description={"suggested_value": d.get(CONF_ONLINE_ENTITY)},
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(
-                    domain=["binary_sensor", "switch", "sensor", "input_boolean"]
-                )
-            ),
-            vol.Optional(
-                CONF_ARTIST_ATTRIBUTE, default=d.get(CONF_ARTIST_ATTRIBUTE) or ""
-            ): selector.TextSelector(),
-            vol.Optional(
-                CONF_INACTIVE_VALUES,
-                default=_inactive_to_str(d.get(CONF_INACTIVE_VALUES)),
-            ): selector.TextSelector(),
-            vol.Optional(
-                CONF_IDLE_VALUE,
-                default=d.get(CONF_IDLE_VALUE) or DEFAULT_IDLE_VALUE,
-            ): selector.TextSelector(),
-            vol.Optional(
-                CONF_ARTWORK_ENTITY_ID,
-                description={"suggested_value": d.get(CONF_ARTWORK_ENTITY_ID)},
-            ): selector.EntitySelector(),
-            vol.Optional(
-                CONF_ARTWORK_ATTRIBUTE,
-                default=d.get(CONF_ARTWORK_ATTRIBUTE) or DEFAULT_ARTWORK_ATTRIBUTE,
-            ): selector.TextSelector(),
-            vol.Required(
-                CONF_SCOPE, default=d.get(CONF_SCOPE, DEFAULT_SCOPE)
-            ): selector.TextSelector(),
-            vol.Optional(
-                CONF_RETENTION_DAYS,
-                description={"suggested_value": d.get(CONF_RETENTION_DAYS)},
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=1, step=1, mode="box")
-            ),
-        })
-        return vol.Schema(schema)
+        """Thin delegator to the shared module-level schema (also used by the
+        watcher subentry flow)."""
+        return v3_watcher_schema(d)
 
     def _db_schema(self, defaults: dict[str, Any]) -> vol.Schema:
         def g(key: str, fallback: Any = "") -> Any:
@@ -460,4 +445,36 @@ class OptionsFlowHelper:
                 days_field: days_selector,
                 hide_field: hide_selector,
             }),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Watcher subentry flow (v3.3) — add a v3 watcher as a nested device under the
+# DB hub instead of a separate top-level entry.
+# ---------------------------------------------------------------------------
+
+
+class WatcherSubentryFlowHandler(ConfigSubentryFlow):
+    """Add / reconfigure a v3 watcher as a config subentry under the DB hub."""
+
+    async def async_step_user(self, user_input: dict[str, Any] | None = None):
+        if user_input is None:
+            return self.async_show_form(
+                step_id="user", data_schema=v3_watcher_schema()
+            )
+        return self.async_create_entry(
+            title=user_input[CONF_NAME],
+            data=watcher_subentry_data(user_input),
+        )
+
+    async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None):
+        subentry = self._get_reconfigure_subentry()
+        if user_input is not None:
+            new_data = {**subentry.data, **_v3_axis_data(user_input)}
+            return self.async_update_and_abort(
+                self._get_entry(), subentry, data=new_data
+            )
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=v3_watcher_schema(dict(subentry.data)),
         )
