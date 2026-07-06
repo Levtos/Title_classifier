@@ -13,7 +13,7 @@ from homeassistant.config_entries import (
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
 
-from .const import CONF_ENTRY_TYPE, DOMAIN, ENTRY_TYPE_HUB, SUBENTRY_TYPE_WATCHER
+from .const import DOMAIN, SUBENTRY_TYPE_WATCHER
 from .flow import ConfigFlowHelper, OptionsFlowHelper, WatcherSubentryFlowHandler
 
 
@@ -63,10 +63,12 @@ class TitleClassifierConfigFlow(ConfigFlow, domain=DOMAIN):
     def async_get_supported_subentry_types(
         cls, config_entry: ConfigEntry
     ) -> dict[str, type[ConfigSubentryFlow]]:
-        # Only the DB hub hosts watcher subentries (nested watcher devices).
-        if config_entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_HUB:
-            return {SUBENTRY_TYPE_WATCHER: WatcherSubentryFlowHandler}
-        return {}
+        # The DB hub is the canonical parent for watcher subentries. We still
+        # expose the same handler on legacy/top-level watcher entries as an
+        # HA-UI compatibility guard: if the user opens "Add watcher" from a
+        # watcher entry such as Stash, the flow must not fail with
+        # UnknownHandler/Invalid handler specified.
+        return {SUBENTRY_TYPE_WATCHER: WatcherSubentryFlowHandler}
 
 
 class TitleClassifierOptionsFlow(OptionsFlow):
