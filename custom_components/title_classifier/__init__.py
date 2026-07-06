@@ -127,32 +127,13 @@ async def _async_setup_hub(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     dsn = build_dsn(db)
     inst = await instance_id.async_get(hass)
     try:
-        await async_get_pool(hass, dsn)
+        pool = await async_get_pool(hass, dsn)
         await async_ensure_listener(hass, dsn, inst)
     except Exception as err:  # asyncpg connection/OS errors → retry later
         await async_release_pool(hass, dsn)
         raise ConfigEntryNotReady(f"Medien-Katalog-DB nicht erreichbar: {err}") from err
 
-    # Set up any v3 watcher subentries nested under this hub. Each becomes its
-    # own runtime + device sharing the hub's pool/listener. Failures are logged
-    # and skipped so one bad subentry never blocks the hub.
-    subentry_runtimes: dict[str, WatcherRuntimeV3] = {}
-    for sub_id, subentry in entry.subentries.items():
-        if subentry.subentry_type != SUBENTRY_TYPE_WATCHER:
-            continue
-        adapter = _SubentryWatcher(subentry)
-        store = CatalogStoreV3(
-            pool,
-            scope=subentry.data.get(CONF_SCOPE, DEFAULT_SCOPE),
-            instance_id=inst,
-        )
-        runtime = WatcherRuntimeV3(hass, adapter, store)
-        try:
-            await runtime.async_setup()
-        except Exception:  # noqa: BLE001 — never let one subentry break the hub
-            _LOGGER.exception("Watcher-Subentry %s Setup fehlgeschlagen", sub_id)
-            continue
-        subentry_runtimes[sub_id] = runtime
+    subentry_runtimes = await _async_setup_subentry_runtimes(hass, entry, pool, inst)
 
     hass.data[DOMAIN][DATA_ENTRIES][entry.entry_id] = {
         "module_id": MODULE_ID,
@@ -220,6 +201,9 @@ async def _async_setup_watcher(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     bucket["runtime"] = runtime
     bucket["dsn"] = dsn
     bucket["status"] = "ready"
+    bucket["subentry_runtimes"] = await _async_setup_subentry_runtimes(
+        hass, entry, pool, inst
+    )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     await async_register_panel(hass)
@@ -274,11 +258,46 @@ async def _async_setup_watcher_v3(hass: HomeAssistant, entry: ConfigEntry) -> bo
         runtime=runtime,
         dsn=dsn,
         status="ready",
+        subentry_runtimes=await _async_setup_subentry_runtimes(
+            hass, entry, pool, inst
+        ),
     )
     await hass.config_entries.async_forward_entry_setups(entry, V3_PLATFORMS)
     await async_register_v3_panel(hass)
     entry.async_on_unload(entry.add_update_listener(_async_reload_on_options))
     return True
+
+
+async def _async_setup_subentry_runtimes(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    pool: Any,
+    inst: str,
+) -> dict[str, WatcherRuntimeV3]:
+    """Set up v3 watcher subentries nested under a config entry.
+
+    The DB hub is the canonical parent. Supporting the same subentries under
+    legacy/top-level watcher entries keeps the HA UI path usable if a user
+    starts "Add watcher" from a watcher entry instead of the hub.
+    """
+    subentry_runtimes: dict[str, WatcherRuntimeV3] = {}
+    for sub_id, subentry in entry.subentries.items():
+        if subentry.subentry_type != SUBENTRY_TYPE_WATCHER:
+            continue
+        adapter = _SubentryWatcher(subentry)
+        store = CatalogStoreV3(
+            pool,
+            scope=subentry.data.get(CONF_SCOPE, DEFAULT_SCOPE),
+            instance_id=inst,
+        )
+        runtime = WatcherRuntimeV3(hass, adapter, store)
+        try:
+            await runtime.async_setup()
+        except Exception:  # noqa: BLE001 - never let one subentry break the parent
+            _LOGGER.exception("Watcher-Subentry %s Setup fehlgeschlagen", sub_id)
+            continue
+        subentry_runtimes[sub_id] = runtime
+    return subentry_runtimes
 
 
 def _attach_watchers_to_hub(hass: HomeAssistant, hub: ConfigEntry) -> None:

@@ -17,11 +17,18 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    # The DB hub hosts v3 watchers as config subentries — one nested device and
-    # its 3 sensors per subentry, attributed via config_subentry_id.
+    bucket = hass.data.get(DOMAIN, {}).get(DATA_ENTRIES, {}).get(entry.entry_id, {})
+    subentry_runtimes = bucket.get("subentry_runtimes") or {}
+
+    # The DB hub hosts canonical v3 watcher subentries. Legacy/top-level
+    # watcher entries may also host them as a compatibility path for the HA UI.
     if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_HUB:
-        bucket = hass.data.get(DOMAIN, {}).get(DATA_ENTRIES, {}).get(entry.entry_id, {})
-        for sub_id, runtime in (bucket.get("subentry_runtimes") or {}).items():
+        for sub_id, runtime in subentry_runtimes.items():
             async_add_entities(get_v3_sensors(runtime), config_subentry_id=sub_id)
         return
-    async_add_entities(await async_get_entities(hass, entry, Platform.SENSOR))
+
+    entities = await async_get_entities(hass, entry, Platform.SENSOR)
+    if entities:
+        async_add_entities(entities)
+    for sub_id, runtime in subentry_runtimes.items():
+        async_add_entities(get_v3_sensors(runtime), config_subentry_id=sub_id)

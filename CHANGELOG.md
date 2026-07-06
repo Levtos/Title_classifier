@@ -1,5 +1,23 @@
 # Changelog
 
+## 3.3.1 - 2026-07-06 — Hotfix Subentry-Handler
+
+Adhoc-Fix für den HA-Fehler `Invalid handler specified`, wenn „Watcher
+hinzufügen" versehentlich von einem flachen Watcher-Eintrag wie `Stash` statt
+vom `Title Classifier DB`-Hub gestartet wird.
+
+- `watcher`-Subentry-Flow ist als Kompatibilitätspfad auch auf bestehenden
+  Top-Level-Watcher-Einträgen registriert; der DB-Hub bleibt der kanonische
+  Parent.
+- Subentry-Runtimes und Sensoren werden auch unter einem solchen Legacy-Parent
+  korrekt geladen.
+- Hub-Setup bindet den DB-Pool nun korrekt, bevor Subentry-Runtimes gestartet
+  werden.
+- Claude-Hinweis: Der kanonische Weg bleibt `Title Classifier DB` -> `Watcher
+  hinzufügen`; der Legacy-Parent-Pfad ist nur ein Adhoc-Kompatibilitätsnetz für
+  HA-UI-Starts von flachen Watcher-Einträgen.
+- Keine Migration, keine DB-Bereinigung, keine Downstream-Contract-Änderung.
+
 ## 3.3.0 - 2026-07-06 — Watcher als Config-Subentries unter dem Hub
 
 Watcher können jetzt als **HA-Config-Subentries direkt unter dem „Title
