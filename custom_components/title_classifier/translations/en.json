@@ -78,5 +78,54 @@
         }
       }
     }
+  },
+  "config_subentries": {
+    "watcher": {
+      "initiate_flow": {
+        "user": "Add watcher",
+        "reconfigure": "Reconfigure watcher"
+      },
+      "entry_type": "Watcher",
+      "step": {
+        "user": {
+          "title": "Add watcher",
+          "description": "Add a watcher as a nested device under the hub. Explicitly choose the watched entity and its axes; nothing is guessed from entity names.",
+          "data": {
+            "name": "Watcher name",
+            "source_entity": "Which entity should be watched?",
+            "media_type": "Media type (music / game / video)",
+            "context": "Context (homepod / pc / ps5 / switch / stash / apple_tv)",
+            "signal_type": "Signal type (title / app)",
+            "source_app": "Source app (optional, e.g. Netflix / Plex / Jellyfin)",
+            "default_active_enum": "Active default enum (e.g. stash = 1, else 0)",
+            "online_entity": "Online / availability entity (optional)",
+            "artist_attribute": "Artist / station attribute (optional, music only)",
+            "inactive_values": "Extra inactive values, comma-separated (e.g. \"No Game, Paused\")",
+            "artwork_entity_id": "Artwork entity (optional)",
+            "artwork_attribute": "Artwork attribute (default: entity_picture)",
+            "scope": "Scope (same value on both instances = shared)",
+            "retention_days": "How long should old entries be kept?"
+          }
+        },
+        "reconfigure": {
+          "title": "Reconfigure watcher",
+          "description": "Update this watcher's axes. Name and source entity stay fixed.",
+          "data": {
+            "media_type": "Media type (music / game / video)",
+            "context": "Context (homepod / pc / ps5 / switch / stash / apple_tv)",
+            "signal_type": "Signal type (title / app)",
+            "source_app": "Source app (optional)",
+            "default_active_enum": "Active default enum",
+            "online_entity": "Online / availability entity (optional)",
+            "artist_attribute": "Artist / station attribute (optional)",
+            "inactive_values": "Extra inactive values",
+            "artwork_entity_id": "Artwork entity (optional)",
+            "artwork_attribute": "Artwork attribute",
+            "scope": "Scope (same value on both instances = shared)",
+            "retention_days": "How long should old entries be kept?"
+          }
+        }
+      }
+    }
   }
 }

@@ -1,5 +1,28 @@
 # Changelog
 
+## 3.3.0 - 2026-07-06 — Watcher als Config-Subentries unter dem Hub
+
+Watcher können jetzt als **HA-Config-Subentries direkt unter dem „Title
+Classifier DB"-Hub** angelegt werden — sie erscheinen als **verschachtelte
+Geräte** unter einem Eintrag statt als separate Top-Level-Einträge. Das ist das
+„Hub → darunter Watcher hinzufügen"-Modell.
+
+- **Neuer Watcher-Subentry-Flow:** Unter dem DB-Hub gibt es einen „Watcher
+  hinzufügen"-Button (gleiches v3-Achsenformular: Quelle, context, media_type,
+  inactive_values, artwork …). Jeder Subentry wird ein eigenes Gerät mit den
+  3 Sensoren (`raw`/`enum`/`catalog`).
+- **Additiv & ohne Migration:** Bestehende Top-Level-Watcher-Einträge
+  (HP/PC/PS5/TV, flache Stash-Slots) laufen unverändert weiter. Beide Wege
+  koexistieren.
+- **Entity-IDs stabil:** Der sichtbare `sensor.title_classifier_<name>_*`-Slug
+  kommt aus dem Watcher-Namen — ein als Subentry neu angelegter „Stash Slot 1"
+  bekommt dieselbe Entity-ID wie zuvor (alten flachen Eintrag vorher entfernen).
+- **Umsetzung:** `WatcherRuntimeV3`/Sensoren sind über einen kleinen Adapter von
+  `ConfigEntry` entkoppelt; der Hub startet pro Subentry eine Runtime + Sensoren
+  (`config_subentry_id`), Reload/Unload pro Subentry. Reine Formular-Daten-Logik
+  in ein HA-freies `flow_data.py` ausgelagert und unit-getestet.
+- Kein Katalog-/DB-Umbau, keine Downstream-Contract-Änderung.
+
 ## 3.2.3 - 2026-07-05 — Diagnose-Zugang vereinheitlicht
 
 Kleiner UX/QOL-Patch: Diagnose ist jetzt aus **Inbox und Katalog** gleich

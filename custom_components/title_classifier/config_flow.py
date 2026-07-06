@@ -4,12 +4,17 @@ from __future__ import annotations
 
 from typing import Any
 
-from homeassistant.config_entries import ConfigEntry, ConfigFlow, OptionsFlow
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    ConfigSubentryFlow,
+    OptionsFlow,
+)
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
 
-from .const import DOMAIN
-from .flow import ConfigFlowHelper, OptionsFlowHelper
+from .const import CONF_ENTRY_TYPE, DOMAIN, ENTRY_TYPE_HUB, SUBENTRY_TYPE_WATCHER
+from .flow import ConfigFlowHelper, OptionsFlowHelper, WatcherSubentryFlowHandler
 
 
 class TitleClassifierConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -52,6 +57,16 @@ class TitleClassifierConfigFlow(ConfigFlow, domain=DOMAIN):
     @callback
     def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
         return TitleClassifierOptionsFlow()
+
+    @classmethod
+    @callback
+    def async_get_supported_subentry_types(
+        cls, config_entry: ConfigEntry
+    ) -> dict[str, type[ConfigSubentryFlow]]:
+        # Only the DB hub hosts watcher subentries (nested watcher devices).
+        if config_entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_HUB:
+            return {SUBENTRY_TYPE_WATCHER: WatcherSubentryFlowHandler}
+        return {}
 
 
 class TitleClassifierOptionsFlow(OptionsFlow):
