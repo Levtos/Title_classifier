@@ -49,6 +49,7 @@ from .const import (
     ENTRY_TYPE_WATCHER_V3,
     HUB_TITLE,
     MODULE_ID,
+    SUBENTRY_TYPE_WATCHER,
 )
 from .catalog_v3 import CONTEXTS, MAX_ENUM, MEDIA_TYPES, MIN_ENUM, SIGNAL_TYPES
 from .db import (
@@ -96,7 +97,32 @@ _DB_KEYS = (CONF_DB_HOST, CONF_DB_PORT, CONF_DB_NAME, CONF_DB_USER, CONF_DB_PASS
 from .flow_data import inactive_to_list as _inactive_to_list  # noqa: E402
 from .flow_data import inactive_to_str as _inactive_to_str  # noqa: E402
 from .flow_data import v3_axis_data as _v3_axis_data  # noqa: E402
+from .flow_data import watcher_name_slug  # noqa: E402
 from .flow_data import watcher_subentry_data  # noqa: E402
+
+
+def existing_watcher_slugs(
+    hass: HomeAssistant, *, exclude_subentry_id: str | None = None
+) -> set[str]:
+    """Name-slugs of every configured watcher — top-level entries and watcher
+    subentries. Used to reject a new watcher whose name would collide on the
+    shared ``sensor.title_classifier_<slug>_*`` entity_id contract.
+    """
+    slugs: set[str] = set()
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        name = entry.data.get(CONF_NAME)
+        if name and entry.data.get(CONF_ENTRY_TYPE) in (
+            ENTRY_TYPE_WATCHER,
+            ENTRY_TYPE_WATCHER_V3,
+        ):
+            slugs.add(watcher_name_slug(name))
+        for sub_id, sub in entry.subentries.items():
+            if sub_id == exclude_subentry_id or sub.subentry_type != SUBENTRY_TYPE_WATCHER:
+                continue
+            sub_name = sub.data.get(CONF_NAME)
+            if sub_name:
+                slugs.add(watcher_name_slug(sub_name))
+    return slugs
 
 
 def v3_watcher_schema(d: dict[str, Any] | None = None) -> vol.Schema:
@@ -461,6 +487,15 @@ class WatcherSubentryFlowHandler(ConfigSubentryFlow):
         if user_input is None:
             return self.async_show_form(
                 step_id="user", data_schema=v3_watcher_schema()
+            )
+        # Reject a name that would collide on the shared entity_id slug (e.g. a
+        # second "Stash" or "Stash Slot 1"). Each slot needs a unique name so
+        # its sensors don't fight over sensor.title_classifier_<slug>_enum.
+        if watcher_name_slug(user_input[CONF_NAME]) in existing_watcher_slugs(self.hass):
+            return self.async_show_form(
+                step_id="user",
+                data_schema=v3_watcher_schema(),
+                errors={CONF_NAME: "name_taken"},
             )
         return self.async_create_entry(
             title=user_input[CONF_NAME],

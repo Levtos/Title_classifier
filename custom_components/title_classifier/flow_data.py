@@ -36,6 +36,17 @@ from .const import (
 CONF_NAME = "name"
 
 
+def watcher_name_slug(name: Any) -> str:
+    """The entity-id slug a watcher name maps to.
+
+    MUST stay identical to ``entities_v3._slug`` and the top-level watcher
+    unique_id (both ``name.lower().replace(" ", "_")``) so a name-collision
+    check here catches the exact case where two watchers would fight over the
+    same ``sensor.title_classifier_<slug>_enum`` entity_id.
+    """
+    return str(name or "").lower().replace(" ", "_")
+
+
 def inactive_to_list(value: Any) -> list[str]:
     """Parse inactive values from the form — a single comma-separated text field
     (comfortable typing) OR a legacy list."""

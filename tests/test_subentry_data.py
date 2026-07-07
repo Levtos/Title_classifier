@@ -49,6 +49,17 @@ def test_inactive_parsing_roundtrip():
     assert F.inactive_to_str(["a", "b"]) == "a, b"
 
 
+def test_watcher_name_slug_matches_entity_id_contract():
+    # Must equal entities_v3._slug: name.lower().replace(" ", "_") — this is the
+    # slug two watchers would collide on (sensor.title_classifier_<slug>_enum).
+    assert F.watcher_name_slug("Stash Slot 1") == "stash_slot_1"
+    assert F.watcher_name_slug("Stash") == "stash"
+    assert F.watcher_name_slug("STASH slot 1") == "stash_slot_1"
+    assert F.watcher_name_slug(None) == ""
+    # Two names that collapse to the same slug are detected as equal.
+    assert F.watcher_name_slug("Stash Slot 1") == F.watcher_name_slug("stash slot 1")
+
+
 def test_v3_axis_data_normalises_and_defaults():
     d = F.v3_axis_data(_form(**{C.CONF_SOURCE_APP: "  Netflix ", C.CONF_SCOPE: ""}))
     assert d[C.CONF_SOURCE_APP] == "Netflix"          # trimmed

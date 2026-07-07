@@ -125,6 +125,9 @@
             "retention_days": "How long should old entries be kept?"
           }
         }
+      },
+      "error": {
+        "name_taken": "A watcher with this name already exists. Choose a unique name (e.g. Stash Slot 1)."
       }
     }
   }
