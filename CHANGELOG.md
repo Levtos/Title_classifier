@@ -1,5 +1,33 @@
 # Changelog
 
+## 3.3.2 - 2026-07-07 — Multi-Watcher/Slot: verschachtelte Watcher sichtbar
+
+Fix, damit **mehrere Watcher-Subentries** (z. B. `Stash Slot 1..4` unter einem
+Parent) getrennt verwaltet **und in der Übersicht angezeigt** werden. Zuvor lief
+ein Subentry-Watcher zwar (Sensoren + Katalog-Sichtungen), war aber in der v3-
+Übersicht/`list_sources` und im geteilten Katalog-Gather unsichtbar, weil die
+Runtime-Sammlung nur Top-Level-Einträge kannte.
+
+- **Root Cause:** `all_v3_runtimes` / `select_v3_runtimes` lasen nur
+  `bucket["runtime"]` (Top-Level). Subentry-Runtimes liegen in
+  `bucket["subentry_runtimes"]` und wurden übersprungen — nur ein einzelner
+  Stash-Watcher war sichtbar, obwohl weitere nested Watcher konfiguriert waren.
+- **Fix:** Die v3-Runtime-Auswahl bezieht jetzt sowohl Top-Level-v3-Watcher als
+  auch alle Watcher-Subentries ein. Damit erscheinen mehrere Watcher mit
+  gleichem `context` (z. B. `stash`) getrennt in der Übersicht, teilen den
+  Katalog und werden von Mutationen/`_after_mutation` erreicht.
+- **Namens-Kollisionsschutz:** Der Watcher-Subentry-Flow lehnt einen Namen ab,
+  dessen Entity-ID-Slug (`sensor.title_classifier_<slug>_*`) bereits von einem
+  Watcher (Top-Level **oder** Subentry) belegt ist (`name_taken`). Top-Level
+  hatte diesen Schutz bereits; Subentries jetzt auch. Jeder Slot braucht einen
+  eindeutigen Namen (z. B. `Stash Slot 1`).
+- **Kein String-Splitting:** Kombititel wie `A | B` werden nicht in TC gesplittet;
+  jeder Slot/Watcher liefert einen eigenen Titel-Key/Sichtung.
+- **Modell:** Ein Watcher pro Slot-Entität (Option A). Bestehende `stash`-Slot-
+  Entitäten werden genutzt; kein neues Attribut-Feld nötig.
+- Keine Änderungen an Stash/Jellyfin/anderen Integrationen. Keine Migration,
+  keine DB-Bereinigung, kein Überschreiben bestehender Enums.
+
 ## 3.3.1 - 2026-07-06 — Hotfix Subentry-Handler
 
 Adhoc-Fix für den HA-Fehler `Invalid handler specified`, wenn „Watcher

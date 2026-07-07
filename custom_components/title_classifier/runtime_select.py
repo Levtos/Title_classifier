@@ -36,4 +36,18 @@ def select_v2_runtimes(buckets: Iterable[dict]) -> list:
 
 
 def select_v3_runtimes(buckets: Iterable[dict]) -> list:
-    return [b["runtime"] for b in buckets if is_v3_watcher_bucket(b)]
+    """Every v3 watcher runtime in these buckets.
+
+    Top-level v3 watchers live in ``bucket["runtime"]``; watcher subentries
+    nested under a hub/watcher live in ``bucket["subentry_runtimes"]`` (a
+    ``{subentry_id: WatcherRuntimeV3}`` map, v3.3). Both are WatcherRuntimeV3,
+    so the v3 WS/sensor layer treats them uniformly. Without the subentry half,
+    nested slot watchers stay invisible to list_sources and the shared catalog
+    gather even though their runtimes are live (FLEET multi-watcher).
+    """
+    runtimes: list = []
+    for b in buckets:
+        if is_v3_watcher_bucket(b):
+            runtimes.append(b["runtime"])
+        runtimes.extend((b.get("subentry_runtimes") or {}).values())
+    return runtimes

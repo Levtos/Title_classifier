@@ -13,7 +13,7 @@ from homeassistant.exceptions import ServiceValidationError
 
 from .const import DATA_ENTRIES, DOMAIN
 from .runtime import WatcherRuntime
-from .runtime_select import is_v2_watcher_bucket, is_v3_watcher_bucket
+from .runtime_select import is_v2_watcher_bucket, select_v3_runtimes
 
 
 def _buckets(hass: HomeAssistant) -> dict:
@@ -45,8 +45,14 @@ def all_runtimes(hass: HomeAssistant) -> list[WatcherRuntime]:
 
 
 def all_v3_runtimes(hass: HomeAssistant):
-    """Every loaded v3 watcher runtime (WatcherRuntimeV3)."""
-    return [b["runtime"] for b in _buckets(hass).values() if is_v3_watcher_bucket(b)]
+    """Every loaded v3 watcher runtime (WatcherRuntimeV3).
+
+    Covers both top-level v3 watcher entries and watcher subentries nested
+    under a hub/watcher — see ``select_v3_runtimes``. This is what makes several
+    slot watchers (e.g. Stash Slot 1..4) show up individually in the overview
+    and share the catalog.
+    """
+    return select_v3_runtimes(_buckets(hass).values())
 
 
 def v3_runtime_for_entry(hass: HomeAssistant, entry_id: str):

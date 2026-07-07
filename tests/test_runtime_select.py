@@ -26,6 +26,41 @@ def test_v3_selection_only_v3():
     assert RS.select_v3_runtimes(_mixed_pool()) == ["V3"]
 
 
+def test_v3_selection_includes_hub_subentry_runtimes():
+    # A DB hub has no own runtime, but hosts watcher subentries — each of those
+    # runtimes must surface (else nested slot watchers are invisible).
+    pool = [
+        {
+            "entry_type": C.ENTRY_TYPE_HUB,
+            "subentry_runtimes": {"s1": "SLOT1", "s2": "SLOT2"},
+        },
+    ]
+    assert RS.select_v3_runtimes(pool) == ["SLOT1", "SLOT2"]
+
+
+def test_v3_selection_top_level_and_subentries_no_double_count():
+    # A top-level v3 watcher that also hosts subentries: own runtime once, plus
+    # each subentry runtime once.
+    pool = [
+        {
+            "entry_type": C.ENTRY_TYPE_WATCHER_V3,
+            "runtime": "TOP",
+            "subentry_runtimes": {"s1": "SLOT1"},
+        },
+        {"entry_type": C.ENTRY_TYPE_HUB, "subentry_runtimes": {"s2": "SLOT2"}},
+    ]
+    assert RS.select_v3_runtimes(pool) == ["TOP", "SLOT1", "SLOT2"]
+
+
+def test_v3_selection_tolerates_missing_or_empty_subentry_map():
+    pool = [
+        {"entry_type": C.ENTRY_TYPE_WATCHER_V3, "runtime": "V3"},
+        {"entry_type": C.ENTRY_TYPE_HUB, "subentry_runtimes": {}},
+        {"entry_type": C.ENTRY_TYPE_HUB},
+    ]
+    assert RS.select_v3_runtimes(pool) == ["V3"]
+
+
 def test_v3_bucket_is_not_a_v2_bucket():
     bucket = {"entry_type": C.ENTRY_TYPE_WATCHER_V3, "runtime": object()}
     assert RS.is_v3_watcher_bucket(bucket)
