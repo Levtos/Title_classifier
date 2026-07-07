@@ -1,5 +1,22 @@
 # Changelog
 
+## 3.3.3 - 2026-07-07 — Übersicht: Master-Gruppe pro Typ
+
+Reine UX-Änderung: Die **Übersicht** gruppiert die Watcher jetzt nach `context`.
+Pro Typ gibt es einen einklappbaren **Master-Kopf** mit Aggregat, darunter die
+einzelnen Watcher-Cards. So sitzen z. B. `Stash Slot 1..4` sichtbar unter einem
+„Stash"-Master statt als lose Einzelkarten.
+
+- **Master-Kopf je context:** Label (z. B. „Stash"), Anzahl-Badge und Aggregat
+  `Master · X/N aktiv · Enum <max>` (höchster Effective-Enum der aktiven Slots;
+  ohne aktiven Slot entfällt der Enum-Teil). Klick klappt die Gruppe auf/zu.
+- **Karten unverändert:** Die bestehenden Watcher-Cards (inkl. Inline-Enum/Apply)
+  bleiben identisch, nur pro Master-Gruppe zusammengefasst.
+- **Reines Frontend:** keine neue Entität, kein Aggregat-Sensor, kein Downstream-
+  Effekt, keine WS-/Contract-Änderung. Gruppierung nur visuell im Panel.
+- Umsetzung: neue reine Helper `groupSourcesByContext` (unit-getestet), Overview
+  rendert Master-Gruppen; Bundle neu gebaut.
+
 ## 3.3.2 - 2026-07-07 — Multi-Watcher/Slot: verschachtelte Watcher sichtbar
 
 Fix, damit **mehrere Watcher-Subentries** (z. B. `Stash Slot 1..4` unter einem
