@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   catalogRowStatus,
+  filterRowsByStructure,
   masterCandidates,
   sortCatalog,
   type CatalogSortable,
@@ -118,6 +119,7 @@ describe("catalogRowStatus", () => {
     hidden: false,
     isCurrent: false,
     enum: 3,
+    reviewed: true,
   };
 
   it("marks a running entry as läuft", () => {
@@ -143,13 +145,23 @@ describe("catalogRowStatus", () => {
     );
   });
 
-  it("flags hidden and Enum-0 (unsorted) for top-level solos only", () => {
-    const hiddenUnsorted = catalogRowStatus({ ...base, hidden: true, enum: 0 });
-    expect(hiddenUnsorted.map((b) => b.key)).toEqual(["hidden", "unsorted"]);
-    // A child never gets the unsorted badge (it inherits from its master).
+  it("labels hidden as Ignoriert and open (unreviewed) as offen", () => {
+    const hiddenOpen = catalogRowStatus({
+      ...base,
+      hidden: true,
+      reviewed: false,
+    });
+    expect(hiddenOpen.map((b) => b.key)).toEqual(["hidden", "open"]);
+    expect(hiddenOpen.find((b) => b.key === "hidden")!.label).toBe("Ignoriert");
+    expect(hiddenOpen.find((b) => b.key === "open")!.label).toBe("offen");
+  });
+
+  it("enum 0 alone is NOT a status — a reviewed enum-0 entry has no badge", () => {
+    expect(catalogRowStatus({ ...base, enum: 0, reviewed: true })).toEqual([]);
+    // …while an open entry carries the offen badge regardless of enum.
     expect(
-      catalogRowStatus({ ...base, isChild: true, enum: 0 }).map((b) => b.key)
-    ).not.toContain("unsorted");
+      catalogRowStatus({ ...base, enum: 4, reviewed: false }).map((b) => b.key)
+    ).toContain("open");
   });
 
   it("returns an empty array (clean fallback) when nothing applies", () => {
@@ -196,5 +208,38 @@ describe("masterCandidates", () => {
       "Mike",
       "Zulu",
     ]);
+  });
+});
+
+describe("filterRowsByStructure", () => {
+  const rows = [
+    { id: "m", isMaster: true, depth: 0, orphan: false },
+    { id: "m.c", isMaster: false, depth: 1, orphan: false },
+    { id: "solo", isMaster: false, depth: 0, orphan: false },
+    { id: "orphan", isMaster: false, depth: 0, orphan: true },
+  ];
+
+  it("master keeps master rows with their nested variants", () => {
+    expect(filterRowsByStructure(rows, "master").map((r) => r.id)).toEqual([
+      "m",
+      "m.c",
+    ]);
+  });
+
+  it("variant yields a flat list of variants incl. orphans", () => {
+    expect(filterRowsByStructure(rows, "variant").map((r) => r.id)).toEqual([
+      "m.c",
+      "orphan",
+    ]);
+  });
+
+  it("standalone keeps entries that are neither master nor variant", () => {
+    expect(filterRowsByStructure(rows, "standalone").map((r) => r.id)).toEqual([
+      "solo",
+    ]);
+  });
+
+  it("empty filter returns the rows unchanged", () => {
+    expect(filterRowsByStructure(rows, "")).toEqual(rows);
   });
 });

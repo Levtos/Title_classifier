@@ -10,26 +10,38 @@ import {
   filterCatalog,
   selectByTab,
   type CatalogTab,
+  type ReviewFilter,
 } from "../state/tree";
 import {
   CATALOG_SORT_MODES,
+  STRUCTURE_FILTERS,
   catalogRowStatus,
+  filterRowsByStructure,
   masterCandidates,
   sortCatalog,
   type CatalogSortMode,
   type CatalogSortable,
+  type StructureFilter,
 } from "../state/catalog";
+import { markVariantCandidates, pickAllClusters } from "../state/variants";
 import type { Context, MediaType, SignalType } from "../state/types";
 import { CONTEXTS, MEDIA_TYPES, SIGNAL_TYPES } from "../state/types";
 import { DetailPanel } from "../components/DetailPanel";
 import { DiagnosisModal } from "../components/DiagnosisModal";
 import { SourceBadge } from "../components/SourceBadge";
+import { VariantQueueModal } from "../components/VariantQueueModal";
 
 const TABS: { id: CatalogTab; label: string }[] = [
   { id: "all", label: "Alle" },
   { id: "unsorted", label: "Unsortiert" },
   { id: "groups", label: "Gruppen" },
-  { id: "hidden", label: "Ausgeblendet" },
+  { id: "hidden", label: "Ignoriert" },
+];
+
+const REVIEW_FILTERS: { id: ReviewFilter; label: string }[] = [
+  { id: "", label: "Status: Alle" },
+  { id: "open", label: "Nur offene" },
+  { id: "reviewed", label: "Nur erledigte" },
 ];
 
 const CONTEXT_LABEL: Record<Context, string> = {
@@ -60,17 +72,43 @@ export function Catalog({ store, hass }: { store: V3Store; hass: Hass | null }) 
   const [media, setMedia] = useState<MediaType | "">("");
   const [signal, setSignal] = useState<SignalType | "">("");
   const [context, setContext] = useState<Context | "">("");
+  const [review, setReview] = useState<ReviewFilter>("");
+  const [structure, setStructure] = useState<StructureFilter>("");
   const [sortMode, setSortMode] = useState<CatalogSortMode>("title-asc");
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [detailReload, setDetailReload] = useState(0);
   const [groupBusy, setGroupBusy] = useState(false);
   const [groupError, setGroupError] = useState<string | null>(null);
   const [diagOpen, setDiagOpen] = useState(false);
+  const [queueOpen, setQueueOpen] = useState(false);
+
+  // Variant-candidate hint (⛓) — same pure detection the Inbox uses.
+  const candidates = useMemo(
+    () => markVariantCandidates(store.displayEntries),
+    [store.displayEntries]
+  );
+
+  // The flat filtered subset (before tree building) — also feeds the variant
+  // queue so the assistant works on exactly what the user is looking at.
+  const filteredEntries = useMemo(
+    () =>
+      filterCatalog(selectByTab(store.displayEntries, tab), {
+        search,
+        media,
+        signal,
+        context,
+        review,
+      }),
+    [store.displayEntries, tab, search, media, signal, context, review]
+  );
+
+  const clusterCount = useMemo(
+    () => pickAllClusters(filteredEntries).length,
+    [filteredEntries]
+  );
 
   const rows = useMemo<Row[]>(() => {
-    const subset = selectByTab(store.displayEntries, tab);
-    const filtered = filterCatalog(subset, { search, media, signal, context });
-    const tree = buildCatalogTree(filtered);
+    const tree = buildCatalogTree(filteredEntries);
     const byId = new Map(tree.map((n) => [n.entry.id, n]));
     const sortables: CatalogSortable[] = tree.map((n) => ({
       id: n.entry.id,
@@ -104,8 +142,8 @@ export function Catalog({ store, hass }: { store: V3Store; hass: Hass | null }) 
         });
       }
     }
-    return out;
-  }, [store.displayEntries, tab, search, media, signal, context, sortMode]);
+    return filterRowsByStructure(out, structure);
+  }, [filteredEntries, sortMode, structure]);
 
   const focused = focusedId ? store.getDisplayEntry(focusedId) : undefined;
   const detailState = useEntryDetail(hass, focusedId, detailReload);
@@ -230,6 +268,30 @@ export function Catalog({ store, hass }: { store: V3Store; hass: Hass | null }) 
           </select>
           <select
             className="tc-select"
+            value={structure}
+            onChange={(e) => setStructure(e.target.value as StructureFilter)}
+            title="Master, Varianten oder eigenständige Titel"
+          >
+            {STRUCTURE_FILTERS.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.label}
+              </option>
+            ))}
+          </select>
+          <select
+            className="tc-select"
+            value={review}
+            onChange={(e) => setReview(e.target.value as ReviewFilter)}
+            title="Offen = noch nicht geprüft, erledigt = bewusst abgeschlossen"
+          >
+            {REVIEW_FILTERS.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.label}
+              </option>
+            ))}
+          </select>
+          <select
+            className="tc-select"
             value={sortMode}
             onChange={(e) => setSortMode(e.target.value as CatalogSortMode)}
             title="Sortierung"
@@ -240,6 +302,19 @@ export function Catalog({ store, hass }: { store: V3Store; hass: Hass | null }) 
               </option>
             ))}
           </select>
+          <button
+            className="tc-btn"
+            type="button"
+            disabled={clusterCount === 0 || groupBusy}
+            onClick={() => setQueueOpen(true)}
+            title={
+              clusterCount > 0
+                ? `${clusterCount} Varianten-Kandidaten nacheinander bearbeiten`
+                : "Keine Varianten-Kandidaten in der aktuellen Ansicht."
+            }
+          >
+            🪄 Variantenmodus{clusterCount > 0 ? ` (${clusterCount})` : ""}
+          </button>
           <span className="tc-filters-info">{rows.length} Zeilen</span>
         </div>
 
@@ -271,7 +346,9 @@ export function Catalog({ store, hass }: { store: V3Store; hass: Hass | null }) 
                     hidden: r.entry.hidden,
                     isCurrent: r.entry.is_current,
                     enum: r.entry.enum,
+                    reviewed: r.entry.reviewed,
                   });
+                  const cand = candidates.get(r.entry.id);
                   return (
                     <tr
                       key={r.entry.id}
@@ -301,15 +378,22 @@ export function Catalog({ store, hass }: { store: V3Store; hass: Hass | null }) 
                       </td>
                       <td className="tc-status-cell">
                         <div className="tc-status-badges">
-                          {badges.length === 0 ? (
+                          {badges.map((b) => (
+                            <span key={b.key} className={`badge ${b.tone}`}>
+                              {b.label}
+                            </span>
+                          ))}
+                          {cand?.candidate ? (
+                            <span
+                              className="badge var"
+                              title="Mögliche Variante — nicht automatisch gruppiert"
+                            >
+                              ⛓ {cand.clusterSize}
+                            </span>
+                          ) : null}
+                          {badges.length === 0 && !cand?.candidate ? (
                             <span className="tc-muted">—</span>
-                          ) : (
-                            badges.map((b) => (
-                              <span key={b.key} className={`badge ${b.tone}`}>
-                                {b.label}
-                              </span>
-                            ))
-                          )}
+                          ) : null}
                         </div>
                       </td>
                       <td className="tc-muted">
@@ -324,6 +408,18 @@ export function Catalog({ store, hass }: { store: V3Store; hass: Hass | null }) 
         </div>
       </div>
 
+      {queueOpen ? (
+        <VariantQueueModal
+          store={store}
+          hass={hass}
+          entries={filteredEntries}
+          onClose={() => {
+            setQueueOpen(false);
+            store.refresh();
+          }}
+        />
+      ) : null}
+
       <DetailPanel
         entry={focused}
         detail={detailState}
@@ -332,6 +428,7 @@ export function Catalog({ store, hass }: { store: V3Store; hass: Hass | null }) 
         onApply={store.applyDraft}
         onReset={store.resetDraft}
         onHide={doHide}
+        onReviewed={store.setReviewed}
         masterOptions={masterOptions}
         onGroup={doGroup}
         onUngroup={doUngroup}

@@ -115,6 +115,9 @@ export interface RowStatusInput {
   hidden: boolean;
   isCurrent: boolean;
   enum: number;
+  /** Review state (control#27): false = open/new, true = done. Independent of
+   *  enum — an entry can be deliberately done at enum 0. */
+  reviewed: boolean;
 }
 
 /** Status badges for one catalog row. Deterministic order; a clean fallback (an
@@ -135,11 +138,50 @@ export function catalogRowStatus(i: RowStatusInput): StatusBadge[] {
   } else if (i.isChild) {
     out.push({ key: "variant", label: "Variante", tone: "var" });
   }
-  if (i.hidden) out.push({ key: "hidden", label: "Versteckt", tone: "off" });
-  if (!i.isChild && !i.isMaster && i.enum === 0) {
-    out.push({ key: "unsorted", label: "Enum 0", tone: "off" });
-  }
+  if (i.hidden) out.push({ key: "hidden", label: "Ignoriert", tone: "off" });
+  // Open (not yet reviewed) is the actionable state — enum 0 alone is NOT a
+  // status; a deliberately closed enum-0 entry carries no badge.
+  if (!i.reviewed) out.push({ key: "open", label: "offen", tone: "ok" });
   return out;
+}
+
+// ------------------------------------------------------------ structure filter
+
+/** Structure axis: masters (groups), variants (children/orphans), standalone. */
+export type StructureFilter = "" | "master" | "variant" | "standalone";
+
+export const STRUCTURE_FILTERS: { id: StructureFilter; label: string }[] = [
+  { id: "", label: "Struktur: Alle" },
+  { id: "master", label: "Nur Master" },
+  { id: "variant", label: "Nur Varianten" },
+  { id: "standalone", label: "Nur eigenständige" },
+];
+
+export interface StructureRowLike {
+  isMaster: boolean;
+  /** 0 = top-level, >0 = nested variant row. */
+  depth: number;
+  orphan: boolean;
+}
+
+/** Filter flattened catalog rows by structure. "master" keeps the master rows
+ *  with their nested variants (the group stays readable); "variant" yields a
+ *  flat list of all variants (nested + orphaned); "standalone" keeps entries
+ *  that are neither master nor variant. */
+export function filterRowsByStructure<T extends StructureRowLike>(
+  rows: T[],
+  filter: StructureFilter
+): T[] {
+  switch (filter) {
+    case "master":
+      return rows.filter((r) => r.isMaster || r.depth > 0);
+    case "variant":
+      return rows.filter((r) => r.depth > 0 || r.orphan);
+    case "standalone":
+      return rows.filter((r) => !r.isMaster && r.depth === 0 && !r.orphan);
+    default:
+      return rows;
+  }
 }
 
 // ----------------------------------------------------------- master targets

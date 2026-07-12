@@ -22,6 +22,8 @@ function entry(id: string, enumValue: number): V3Entry {
     is_variant: false,
     variants: [],
     hidden: false,
+    reviewed: false,
+    reviewed_at: null,
     is_current: false,
     effective_enum: null,
     current_context: null,

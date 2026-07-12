@@ -37,6 +37,11 @@ export function createV3Api(hass: Hass) {
       }),
     setHidden: (entry_id: string, hidden: boolean) =>
       ws<{ ok: boolean; hidden: boolean }>("set_hidden", { entry_id, hidden }),
+    setReviewed: (entry_id: string, reviewed: boolean) =>
+      ws<{ ok: boolean; reviewed: boolean }>("set_reviewed", {
+        entry_id,
+        reviewed,
+      }),
     deleteEntry: (entry_id: string) =>
       ws<{ deleted: boolean }>("delete_entry", { entry_id }),
     group: (child_id: string, parent_id: string) =>
