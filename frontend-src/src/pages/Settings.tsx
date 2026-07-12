@@ -1,4 +1,5 @@
 import type { V3Store } from "../state/store";
+import { groupSourcesByContext } from "../state/sourceGroups";
 
 // Minimal read-only status view (v3.0.0). Surfaces the connection/catalog state
 // the store already holds so the Settings page no longer looks like "Postgres is
@@ -24,8 +25,12 @@ export function Settings({ store }: { store: V3Store }) {
               </div>
             </div>
             <div className="tc-stat">
-              <div className="tc-stat-val">{store.sources.length}</div>
-              <div className="tc-stat-label">Watcher</div>
+              <div className="tc-stat-val">
+                {groupSourcesByContext(store.sources).length}
+              </div>
+              <div className="tc-stat-label">
+                Watcher ({store.sources.length} Quellen)
+              </div>
             </div>
             <div className="tc-stat">
               <div className="tc-stat-val">{store.entryCount ?? "—"}</div>

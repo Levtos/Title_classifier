@@ -1,6 +1,8 @@
-import { useState, type ReactElement } from "react";
+import { useMemo, useState, type ReactElement } from "react";
 import type { Hass } from "./ha";
 import { useV3Store } from "./state/store";
+import { countOpenEntries } from "./state/inbox";
+import { groupSourcesByContext, groupStats } from "./state/sourceGroups";
 import { PAGES, type PageId } from "./pages/registry";
 import { Sidebar } from "./components/Sidebar";
 import { CommandBar } from "./components/CommandBar";
@@ -27,6 +29,19 @@ export function App({ hass }: Props) {
   const meta = PAGES.find((p) => p.id === page)!;
   const Placeholder = PLACEHOLDER_VIEWS[page];
 
+  // Same definitions as the Overview header: watchers = context groups (the
+  // four Stash slots are ONE watcher), open = unreviewed top-level entries.
+  const watcherCount = useMemo(
+    () => groupStats(groupSourcesByContext(store.sources)).watcherCount,
+    [store.sources]
+  );
+  const openCount = useMemo(() => {
+    const inactive = new Set(
+      store.sources.flatMap((s) => s.inactive_keys ?? [])
+    );
+    return countOpenEntries(store.displayEntries, inactive);
+  }, [store.sources, store.displayEntries]);
+
   const renderPage = (): ReactElement => {
     if (page === "inbox") return <Inbox store={store} hass={hass} />;
     if (page === "catalog") return <Catalog store={store} hass={hass} />;
@@ -52,7 +67,8 @@ export function App({ hass }: Props) {
           selectedCount={0}
           lastSync={store.lastSync}
           error={store.error}
-          watcherCount={store.sources.length}
+          watcherCount={watcherCount}
+          openCount={store.connected ? openCount : null}
         />
       </div>
     </div>

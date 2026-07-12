@@ -1,6 +1,7 @@
 import type { MediaType, V3Source } from "../state/types";
 import type { DisplayEntry } from "../state/drafts";
 import { mediaTypeClass } from "../state/media";
+import type { SourceGroup } from "../state/sourceGroups";
 import { EnumSelect } from "./EnumSelect";
 
 const MEDIA_LABEL: Record<MediaType, string> = {
@@ -72,6 +73,51 @@ export function WatcherCard({ s, entry, onDraftEnum, onApply }: Props) {
             ) : null}
           </div>
         ) : null}
+      </div>
+    </div>
+  );
+}
+
+// One watcher with several technical sources (the four Stash slots): a SINGLE
+// card whose shared facts (name, media type, online summary) appear once, with
+// one compact row per slot underneath. The slots stay separate sources in the
+// backend — this is display-only (control#27).
+export function MultiSlotWatcherCard({ g }: { g: SourceGroup }) {
+  const mediaType = g.sources[0]?.media_type ?? "video";
+  return (
+    <div className={`tc-watcher tc-watcher-multi ${mediaTypeClass(mediaType)}`}>
+      <div className="tc-w-main">
+        <div className="tc-w-head">
+          <span className="tc-w-name">{g.label}</span>
+          <span className={`badge ${mediaType}`}>{MEDIA_LABEL[mediaType]}</span>
+          <span className="badge">{g.context}</span>
+          <span className={`badge ${g.onlineCount > 0 ? "ok" : "off"}`}>
+            {g.onlineCount}/{g.total} Slots online
+          </span>
+        </div>
+        <div className="tc-w-meta">
+          <span>
+            {g.activeCount}/{g.total} Slots aktiv
+            {g.maxActiveEnum != null ? (
+              <>
+                {" · max. Enum "}
+                <b className="tc-enum">{g.maxActiveEnum}</b>
+              </>
+            ) : null}
+          </span>
+        </div>
+        <div className="tc-slots">
+          {g.sources.map((s) => (
+            <div key={s.entry_id} className="tc-slot-row">
+              <span className={`tc-slot-dot ${s.online ? "ok" : "off"}`} />
+              <span className="tc-slot-name">{s.name}</span>
+              <span className={`tc-slot-cur ${s.current_key ? "" : "muted"}`}>
+                {s.current_key ? `▶ ${s.current_key}` : "— inaktiv —"}
+              </span>
+              <span className="tc-enum">{s.current_enum ?? "—"}</span>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

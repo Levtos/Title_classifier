@@ -5,6 +5,8 @@ interface Props {
   lastSync: string | null;
   error?: string | null;
   watcherCount?: number;
+  /** Open (unreviewed) entries — same definition as the Overview header. */
+  openCount?: number | null;
 }
 
 export function StatusBar({
@@ -14,6 +16,7 @@ export function StatusBar({
   lastSync,
   error,
   watcherCount,
+  openCount,
 }: Props) {
   return (
     <div className="tc-statusbar">
@@ -23,6 +26,7 @@ export function StatusBar({
       </span>
       {watcherCount !== undefined ? <span>Watcher: {watcherCount}</span> : null}
       <span>Einträge: {entryCount ?? "—"}</span>
+      {openCount !== undefined ? <span>Offen: {openCount ?? "—"}</span> : null}
       <span>Auswahl: {selectedCount}</span>
       <span>Letzter Sync: {lastSync ?? "—"}</span>
       {error ? (
