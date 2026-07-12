@@ -5,12 +5,13 @@ import type { V3Store } from "../state/store";
 import type { DisplayEntry } from "../state/drafts";
 import { useEntryDetail } from "../state/detail";
 import { buildGroupPayload } from "../state/group";
+import { filterInbox } from "../state/inbox";
 import { sortEntries, type SortMode } from "../state/sort";
 import { mediaTypeClass, mediaTypeLabel } from "../state/media";
 import {
   candidateKey,
   markVariantCandidates,
-  pickBestCluster,
+  pickAllClusters,
 } from "../state/variants";
 import type { Context, MediaType, SignalType } from "../state/types";
 import { CONTEXTS, MEDIA_TYPES, SIGNAL_TYPES } from "../state/types";
@@ -18,18 +19,23 @@ import { EnumSelect } from "../components/EnumSelect";
 import { DetailPanel } from "../components/DetailPanel";
 import { DiagnosisModal } from "../components/DiagnosisModal";
 import { SourceBadge } from "../components/SourceBadge";
+import { VariantQueueModal } from "../components/VariantQueueModal";
 
 function shortTime(ts: string): string {
   const d = new Date(ts);
   return isNaN(d.getTime()) ? ts : d.toLocaleString();
 }
 
+// The Inbox is the work queue for NEW titles (control#27): top-level entries
+// with reviewed === false that are not ignored. The enum is deliberately not a
+// filter criterion — closing an entry ("Erledigt") is an explicit action and
+// works at enum 0 too. Everything stays in the Catalog afterwards.
 export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
   const [search, setSearch] = useState("");
   const [media, setMedia] = useState<MediaType | "">("");
   const [signal, setSignal] = useState<SignalType | "">("");
   const [context, setContext] = useState<Context | "">("");
-  const [includeHidden, setIncludeHidden] = useState(false);
+  const [includeIgnored, setIncludeIgnored] = useState(false);
   const [variantsFirst, setVariantsFirst] = useState(false);
   const [sortMode, setSortMode] = useState<SortMode>("newest");
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -46,9 +52,9 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
   // Passive polls / a new current_key may reshuffle `rows`, but the dialog must
   // stay pinned to what the user picked (stable master, stable payload).
   const [groupSnapshot, setGroupSnapshot] = useState<DisplayEntry[]>([]);
-  // Why the assistant suggested this cluster (shown in the dialog); null for a
-  // manually opened dialog.
-  const [groupReason, setGroupReason] = useState<string | null>(null);
+  // Continuous variant queue mode (shared modal, snapshots on open).
+  const [queueOpen, setQueueOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   // Union of configured inactive keys across watchers → hide stale rows like
   // "No Game" that were saved before the value was added.
@@ -64,20 +70,15 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
   );
   const isCand = (id: string) => candidates.get(id)?.candidate ?? false;
 
-  // Default Inbox filter: unclassified (server enum 0), not hidden, top-level,
-  // not an inactive value.
+  // Work queue: open (unreviewed) top-level entries — see state/inbox.ts.
   const rows = useMemo(() => {
-    const filtered = store.displayEntries.filter((e) => {
-      if (e.parent_id !== null) return false;
-      if (e.serverEnum !== 0) return false;
-      if (!includeHidden && e.hidden) return false;
-      if (inactiveKeys.has(e.normalized_key)) return false;
-      if (media && e.media_type !== media) return false;
-      if (signal && e.signal_type !== signal) return false;
-      if (context && e.current_context !== context) return false;
-      if (search && !e.key.toLowerCase().includes(search.toLowerCase()))
-        return false;
-      return true;
+    const filtered = filterInbox(store.displayEntries, {
+      inactiveKeys,
+      includeIgnored,
+      media,
+      signal,
+      context,
+      search,
     });
     const sorted = sortEntries(filtered, sortMode);
     // Stable second pass: candidate clusters to the top when toggled on.
@@ -87,7 +88,7 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     store.displayEntries,
-    includeHidden,
+    includeIgnored,
     media,
     signal,
     context,
@@ -97,6 +98,8 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
     variantsFirst,
     sortMode,
   ]);
+
+  const clusterCount = useMemo(() => pickAllClusters(rows).length, [rows]);
 
   const toggleSel = (id: string) =>
     setSelected((prev) => {
@@ -159,11 +162,30 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
     return keys.size === 1;
   }, [groupSnapshot]);
 
-  const hideSelected = async () => {
-    for (const e of selectedEntries) {
-      if (!e.hidden) await store.setHidden(e.id, true);
+  /** Deliberately close the selected open entries — they leave the Inbox and
+   *  stay fully editable in the Catalog. Enum is untouched (0 stays valid). */
+  const reviewSelected = async () => {
+    setBusy(true);
+    try {
+      for (const e of selectedEntries) {
+        if (!e.reviewed) await store.setReviewed(e.id, true);
+      }
+      setSelected(new Set());
+    } finally {
+      setBusy(false);
     }
-    setSelected(new Set());
+  };
+
+  const ignoreSelected = async () => {
+    setBusy(true);
+    try {
+      for (const e of selectedEntries) {
+        if (!e.hidden) await store.setHidden(e.id, true);
+      }
+      setSelected(new Set());
+    } finally {
+      setBusy(false);
+    }
   };
 
   const clearSelection = () => {
@@ -171,7 +193,6 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
     setGroupOpen(false);
     setGroupMasterId(null);
     setGroupSnapshot([]);
-    setGroupReason(null);
     setGroupError(null);
   };
 
@@ -179,25 +200,6 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
     if (selectedEntries.length < 2) return;
     setGroupSnapshot(selectedEntries);
     setGroupMasterId(selectedEntries[0].id);
-    setGroupReason(null);
-    setGroupError(null);
-    setGroupOpen(true);
-  };
-
-  // Varianten-Assistent: find the best cluster in the *current view*, select it
-  // and open the group dialog with a preselected master + a "why" hint. It only
-  // prepares the confirmation dialog — nothing is grouped until the user saves.
-  const suggestion = useMemo(() => pickBestCluster(rows), [rows]);
-
-  const runVariantAssistant = () => {
-    if (!suggestion) return;
-    const ids = new Set(suggestion.ids);
-    const snapshot = rows.filter((e) => ids.has(e.id));
-    if (snapshot.length < 2) return;
-    setSelected(new Set(suggestion.ids));
-    setGroupSnapshot(snapshot);
-    setGroupMasterId(suggestion.masterId);
-    setGroupReason(suggestion.reason);
     setGroupError(null);
     setGroupOpen(true);
   };
@@ -226,7 +228,6 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
       setGroupOpen(false);
       setGroupMasterId(null);
       setGroupSnapshot([]);
-      setGroupReason(null);
       setFocusedId(payload.parent_id);
       setDetailReload((n) => n + 1);
       store.refresh();
@@ -305,10 +306,10 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
           <label className="tc-check">
             <input
               type="checkbox"
-              checked={includeHidden}
-              onChange={(e) => setIncludeHidden(e.target.checked)}
+              checked={includeIgnored}
+              onChange={(e) => setIncludeIgnored(e.target.checked)}
             />
-            versteckte
+            ignorierte
           </label>
           <label className="tc-check">
             <input
@@ -330,25 +331,36 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
           <button
             className="tc-btn"
             type="button"
-            disabled={!suggestion || groupSaving}
-            onClick={runVariantAssistant}
+            disabled={clusterCount === 0 || busy}
+            onClick={() => setQueueOpen(true)}
             title={
-              suggestion
-                ? suggestion.reason
-                : "Keine Varianten-Vorschläge in der aktuellen Ansicht."
+              clusterCount > 0
+                ? `${clusterCount} Varianten-Kandidaten nacheinander bearbeiten`
+                : "Keine Varianten-Kandidaten in der aktuellen Ansicht."
             }
           >
-            🪄 Varianten-Vorschlag
+            🪄 Variantenmodus{clusterCount > 0 ? ` (${clusterCount})` : ""}
           </button>
           <span className="tc-filters-info">
-            {rows.length} Einträge · Auswahl {selected.size} · offen{" "}
+            {rows.length} offen · Auswahl {selected.size} · ungespeichert{" "}
             {store.dirtyCount}
           </span>
-          {selectedEntries.length >= 2 ? (
+          {selectedEntries.length > 0 ? (
             <button
               className="tc-btn primary"
               type="button"
-              disabled={!hass || groupSaving}
+              disabled={!hass || busy}
+              onClick={reviewSelected}
+              title="Bewusst abschließen — verschwindet aus der Inbox, bleibt im Katalog. Das Enum bleibt unverändert."
+            >
+              ✓ Erledigt ({selectedEntries.length})
+            </button>
+          ) : null}
+          {selectedEntries.length >= 2 ? (
+            <button
+              className="tc-btn"
+              type="button"
+              disabled={!hass || groupSaving || busy}
               onClick={openGroupDialog}
             >
               Gruppieren ({selectedEntries.length})
@@ -358,17 +370,18 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
             <button
               className="tc-btn"
               type="button"
-              disabled={!hass || groupSaving}
-              onClick={hideSelected}
+              disabled={!hass || busy}
+              onClick={ignoreSelected}
+              title="Ignorieren/Archivieren — eigener Zustand, unabhängig von „Erledigt“."
             >
-              Ausblenden ({selectedEntries.length})
+              Ignorieren ({selectedEntries.length})
             </button>
           ) : null}
           {selected.size > 0 ? (
             <button
               className="tc-btn"
               type="button"
-              disabled={groupSaving}
+              disabled={groupSaving || busy}
               onClick={clearSelection}
             >
               Auswahl aufheben
@@ -396,7 +409,7 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
               {rows.length === 0 ? (
                 <tr>
                   <td colSpan={10} className="tc-placeholder">
-                    Keine unklassifizierten Einträge.
+                    Keine neuen Titel — alles geprüft.
                   </td>
                 </tr>
               ) : (
@@ -452,10 +465,10 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
                           <span className="badge var">
                             Master · {e.variants.length}
                           </span>
-                        ) : e.is_variant ? (
-                          <span className="badge var">Variante</span>
                         ) : null}
-                        {e.hidden ? <span className="badge off">versteckt</span> : null}
+                        {e.hidden ? (
+                          <span className="badge off">ignoriert</span>
+                        ) : null}
                         {isCand(e.id) ? (
                           <span
                             className="badge var"
@@ -470,7 +483,6 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
                           e.dirty ||
                           e.is_current ||
                           e.variants.length > 0 ||
-                          e.is_variant ||
                           e.hidden ||
                           isCand(e.id)
                         ) ? (
@@ -482,27 +494,39 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
                       {e.seen_count}× · {shortTime(e.last_seen)}
                     </td>
                     <td>
-                      {e.dirty ? (
-                        <span
-                          className="tc-row-actions"
-                          onClick={(ev) => ev.stopPropagation()}
-                        >
-                          <button
-                            className="tc-btn primary tc-mini"
-                            disabled={e.saving}
-                            onClick={() => store.applyDraft(e.id)}
-                          >
-                            ✓
-                          </button>
+                      <span
+                        className="tc-row-actions"
+                        onClick={(ev) => ev.stopPropagation()}
+                      >
+                        {e.dirty ? (
+                          <>
+                            <button
+                              className="tc-btn primary tc-mini"
+                              disabled={e.saving}
+                              onClick={() => store.applyDraft(e.id)}
+                              title="Enum speichern (schließt den Eintrag NICHT ab)"
+                            >
+                              ✓
+                            </button>
+                            <button
+                              className="tc-btn tc-mini"
+                              disabled={e.saving}
+                              onClick={() => store.resetDraft(e.id)}
+                            >
+                              ↺
+                            </button>
+                          </>
+                        ) : (
                           <button
                             className="tc-btn tc-mini"
-                            disabled={e.saving}
-                            onClick={() => store.resetDraft(e.id)}
+                            disabled={busy}
+                            onClick={() => store.setReviewed(e.id, true)}
+                            title="Bewusst abschließen — verschwindet aus der Inbox, bleibt im Katalog."
                           >
-                            ↺
+                            Erledigt
                           </button>
-                        </span>
-                      ) : null}
+                        )}
+                      </span>
                     </td>
                   </tr>
                 ))
@@ -528,9 +552,6 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
             onClick={(ev) => ev.stopPropagation()}
           >
             <h3 id="tc-group-title">Einträge gruppieren</h3>
-            {groupReason ? (
-              <p className="tc-hint-ok">🪄 Vorschlag: {groupReason}</p>
-            ) : null}
             {groupIsCluster ? (
               <p className="tc-hint-ok">⛓ Mögliche Variante erkannt.</p>
             ) : (
@@ -589,6 +610,18 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
         </div>
       ) : null}
 
+      {queueOpen ? (
+        <VariantQueueModal
+          store={store}
+          hass={hass}
+          entries={rows}
+          onClose={() => {
+            setQueueOpen(false);
+            store.refresh();
+          }}
+        />
+      ) : null}
+
       <DetailPanel
         entry={focused}
         detail={detailState}
@@ -597,6 +630,7 @@ export function Inbox({ store, hass }: { store: V3Store; hass: Hass | null }) {
         onApply={store.applyDraft}
         onReset={store.resetDraft}
         onHide={store.setHidden}
+        onReviewed={store.setReviewed}
         showTrace
         onOpenDiagnosis={() => setDiagOpen(true)}
       />

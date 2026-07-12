@@ -43,6 +43,7 @@ export interface V3Store {
   dirtyCount: number;
   // actions
   setHidden: (id: string, hidden: boolean) => Promise<void>;
+  setReviewed: (id: string, reviewed: boolean) => Promise<void>;
 }
 
 const POLL_MS = 5000;
@@ -164,6 +165,26 @@ export function useV3Store(hass: Hass | null): V3Store {
     [refresh]
   );
 
+  const setReviewed = useCallback(
+    async (id: string, reviewed: boolean) => {
+      const h = hassRef.current;
+      if (!h) return;
+      try {
+        await createV3Api(h).setReviewed(id, reviewed);
+        // Optimistic patch so the row leaves the Inbox immediately; the next
+        // poll reconciles the authoritative state.
+        setEntries((es) =>
+          es.map((e) => (e.id === id ? { ...e, reviewed } : e))
+        );
+        sigRef.current = "";
+        refresh();
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : String(e));
+      }
+    },
+    [refresh]
+  );
+
   const displayEntries = useMemo(
     () => toDisplayEntries(entries, drafts, saves),
     [entries, drafts, saves]
@@ -197,5 +218,6 @@ export function useV3Store(hass: Hass | null): V3Store {
     getDisplayEntry,
     dirtyCount: Object.keys(drafts).length,
     setHidden,
+    setReviewed,
   };
 }

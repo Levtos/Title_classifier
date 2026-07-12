@@ -1,23 +1,30 @@
-import { useState } from "react";
+import { useMemo } from "react";
 import type { V3Store } from "../state/store";
-import { WatcherCard } from "../components/WatcherCard";
-import { groupSourcesByContext, type SourceGroup } from "../state/sourceGroups";
+import { MultiSlotWatcherCard, WatcherCard } from "../components/WatcherCard";
+import { countOpenEntries } from "../state/inbox";
+import { groupSourcesByContext, groupStats } from "../state/sourceGroups";
 
+// Overview (v3.4.0): exactly ONE watcher per context. Single-source contexts
+// (HomePod/PC/PS5/Apple TV) render as a plain card without any extra group
+// frame; a multi-source context (Stash) renders as one card with compact slot
+// rows. Statistics are deduplicated: "Einträge" comes from the union entry
+// store and "Offen" uses the shared reviewed-based definition (state/inbox) —
+// never a sum of per-source catalog counts, which counted the same media-type
+// catalog once per slot.
 export function Overview({ store }: { store: V3Store }) {
   const { sources, entryCount, connected, error, lastSync } = store;
-  const online = sources.filter((s) => s.online).length;
-  const unmapped = sources.reduce((n, s) => n + s.unmapped_count, 0);
+  const groups = useMemo(() => groupSourcesByContext(sources), [sources]);
+  const stats = groupStats(groups);
   const active = sources.filter((s) => s.current_key);
-  const groups = groupSourcesByContext(sources);
 
-  // Collapsed master groups (by context). Empty = all expanded.
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const toggle = (context: string) =>
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      next.has(context) ? next.delete(context) : next.add(context);
-      return next;
-    });
+  const inactiveKeys = useMemo(
+    () => new Set(sources.flatMap((s) => s.inactive_keys ?? [])),
+    [sources]
+  );
+  const openCount = useMemo(
+    () => countOpenEntries(store.displayEntries, inactiveKeys),
+    [store.displayEntries, inactiveKeys]
+  );
 
   return (
     <div className="tc-page">
@@ -28,10 +35,13 @@ export function Overview({ store }: { store: V3Store }) {
       ) : null}
 
       <div className="tc-stats">
-        <Stat label="Watcher" value={sources.length} />
-        <Stat label="Online" value={`${online}/${sources.length}`} />
+        <Stat label="Watcher" value={stats.watcherCount} />
+        <Stat
+          label="Online"
+          value={`${stats.onlineGroups}/${stats.watcherCount}`}
+        />
         <Stat label="Einträge" value={entryCount ?? "—"} />
-        <Stat label="Unklassifiziert" value={unmapped} />
+        <Stat label="Offen" value={connected ? openCount : "—"} />
       </div>
 
       <section className="tc-section">
@@ -53,17 +63,25 @@ export function Overview({ store }: { store: V3Store }) {
 
       <section className="tc-section">
         <h3>Watcher</h3>
-        {sources.length ? (
-          <div className="tc-groups">
-            {groups.map((g) => (
-              <WatcherGroup
-                key={g.context}
-                g={g}
-                store={store}
-                collapsed={collapsed.has(g.context)}
-                onToggle={() => toggle(g.context)}
-              />
-            ))}
+        {groups.length ? (
+          <div className="tc-watchers">
+            {groups.map((g) =>
+              g.total === 1 ? (
+                <WatcherCard
+                  key={g.context}
+                  s={g.sources[0]}
+                  entry={
+                    g.sources[0].current_entry_id
+                      ? store.getDisplayEntry(g.sources[0].current_entry_id)
+                      : undefined
+                  }
+                  onDraftEnum={store.setDraftEnum}
+                  onApply={store.applyDraft}
+                />
+              ) : (
+                <MultiSlotWatcherCard key={g.context} g={g} />
+              )
+            )}
           </div>
         ) : (
           <div className="tc-placeholder">
@@ -78,58 +96,6 @@ export function Overview({ store }: { store: V3Store }) {
         System: WebSocket {connected ? "verbunden" : "getrennt"} · letzter Sync{" "}
         {lastSync ?? "—"}. (PostgreSQL-/DB-Status folgt mit den Einstellungen.)
       </div>
-    </div>
-  );
-}
-
-function WatcherGroup({
-  g,
-  store,
-  collapsed,
-  onToggle,
-}: {
-  g: SourceGroup;
-  store: V3Store;
-  collapsed: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <div className="tc-group">
-      <button
-        className="tc-group-head"
-        onClick={onToggle}
-        aria-expanded={!collapsed}
-      >
-        <span className="tc-group-caret">{collapsed ? "▸" : "▾"}</span>
-        <span className="tc-group-label">{g.label}</span>
-        <span className="tc-group-count">{g.total}</span>
-        <span className="tc-group-agg">
-          Master · {g.activeCount}/{g.total} aktiv
-          {g.maxActiveEnum != null ? (
-            <>
-              {" · Enum "}
-              <b className="tc-enum">{g.maxActiveEnum}</b>
-            </>
-          ) : null}
-        </span>
-      </button>
-      {!collapsed ? (
-        <div className="tc-watchers">
-          {g.sources.map((s) => (
-            <WatcherCard
-              key={s.entry_id}
-              s={s}
-              entry={
-                s.current_entry_id
-                  ? store.getDisplayEntry(s.current_entry_id)
-                  : undefined
-              }
-              onDraftEnum={store.setDraftEnum}
-              onApply={store.applyDraft}
-            />
-          ))}
-        </div>
-      ) : null}
     </div>
   );
 }

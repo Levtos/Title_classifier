@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   candidateKey,
   markVariantCandidates,
+  pickAllClusters,
   pickBestCluster,
   type ClusterInput,
   type VariantInput,
@@ -150,5 +151,46 @@ describe("pickBestCluster (Varianten-Assistent)", () => {
     ]);
     // only "a" is eligible → no cluster of size >= 2
     expect(pick).toBeNull();
+  });
+});
+
+describe("pickAllClusters (Variantenmodus-Queue)", () => {
+  it("returns every cluster, largest first, in a stable order", () => {
+    const picks = pickAllClusters([
+      ce("a1", "Artist One - Hit"),
+      ce("a2", "Artist One - Hit (Remix)"),
+      ce("b1", "Band Two - Jam"),
+      ce("b2", "Band Two - Jam (Live)"),
+      ce("b3", "Band Two - Jam (Radio Edit)"),
+      ce("x", "Solo - Song"),
+    ]);
+    expect(picks).toHaveLength(2);
+    expect(new Set(picks[0].ids)).toEqual(new Set(["b1", "b2", "b3"]));
+    expect(new Set(picks[1].ids)).toEqual(new Set(["a1", "a2"]));
+  });
+
+  it("keeps first-appearance order between equally sized clusters", () => {
+    const picks = pickAllClusters([
+      ce("a1", "Alpha - One"),
+      ce("b1", "Beta - Two"),
+      ce("a2", "Alpha - One (Live)"),
+      ce("b2", "Beta - Two (Live)"),
+    ]);
+    expect(picks.map((p) => new Set(p.ids))).toEqual([
+      new Set(["a1", "a2"]),
+      new Set(["b1", "b2"]),
+    ]);
+  });
+
+  it("ignores hidden and already-grouped entries and returns [] without clusters", () => {
+    expect(
+      pickAllClusters([
+        ce("h1", "Ghost - Song", { hidden: true }),
+        ce("h2", "Ghost - Song (Live)", { hidden: true }),
+        ce("c1", "Child - Track", { parent_id: "m" }),
+        ce("c2", "Child - Track (Live)", { parent_id: "m" }),
+        ce("solo", "Alone - Tune"),
+      ])
+    ).toEqual([]);
   });
 });

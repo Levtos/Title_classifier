@@ -358,64 +358,58 @@ button {
   font-weight: 500;
 }
 
-.tc-groups {
+/* One watcher per context (v3.4.0): singles are plain cards, a multi-slot
+   watcher (Stash) is ONE card with compact slot rows. Responsive via the
+   auto-fill grid — cards wrap to a single column on narrow views. */
+.tc-watcher-multi {
+  grid-column: 1 / -1;
+}
+
+.tc-slots {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 4px;
+  margin-top: 8px;
 }
 
-/* Master-per-type group: one collapsible header per context, watcher cards
-   below (v3.3.3). */
-.tc-group {
-  border: 1px solid var(--tc-border);
-  border-radius: var(--tc-radius);
-  background: color-mix(in srgb, var(--tc-surface) 55%, var(--tc-bg));
-  padding: 10px 12px;
-}
-
-.tc-group-head {
-  display: flex;
-  align-items: center;
+.tc-slot-row {
+  display: grid;
+  grid-template-columns: 10px minmax(90px, 150px) 1fr auto;
   gap: 10px;
-  width: 100%;
-  background: none;
-  border: none;
-  padding: 4px 2px 10px;
-  cursor: pointer;
-  color: var(--tc-text);
-  text-align: left;
-  font: inherit;
-}
-
-.tc-group-caret {
-  color: var(--tc-text-muted);
-  width: 1em;
-  flex: none;
-}
-
-.tc-group-label {
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  align-items: center;
+  background: var(--tc-surface-raised);
+  border: 1px solid var(--tc-border);
+  border-radius: 8px;
+  padding: 5px 10px;
   font-size: 13px;
 }
 
-.tc-group-count {
-  min-width: 20px;
-  padding: 1px 7px;
+.tc-slot-dot {
+  width: 8px;
+  height: 8px;
   border-radius: 999px;
-  background: var(--tc-surface-raised);
-  border: 1px solid var(--tc-border);
-  color: var(--tc-text-muted);
-  font-size: 11px;
-  font-weight: 600;
-  text-align: center;
+  background: var(--tc-danger);
 }
 
-.tc-group-agg {
-  margin-left: auto;
+.tc-slot-dot.ok {
+  background: var(--tc-accent-green);
+}
+
+.tc-slot-name {
   color: var(--tc-text-muted);
-  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tc-slot-cur {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tc-slot-cur.muted {
+  color: var(--tc-text-muted);
 }
 
 .tc-watchers {
@@ -691,6 +685,11 @@ button {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 14px;
+}
+
+/* Variant queue: five actions need room — allow wrapping on narrow views. */
+.tc-queue-actions {
+  flex-wrap: wrap;
 }
 
 /* ---------------------------------------------------------------- catalog */

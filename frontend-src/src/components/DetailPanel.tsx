@@ -13,6 +13,8 @@ interface Props {
   onApply: (id: string) => void;
   onReset: (id: string) => void;
   onHide: (id: string, hidden: boolean) => void;
+  /** Review toggle (control#27): mark done / reopen. Omitted ⇒ no button. */
+  onReviewed?: (id: string, reviewed: boolean) => void;
   // Catalog-only group management. When omitted (Inbox) the group section is not
   // rendered — the panel stays exactly as before.
   masterOptions?: { id: string; key: string }[];
@@ -40,6 +42,7 @@ export function DetailPanel({
   onApply,
   onReset,
   onHide,
+  onReviewed,
   masterOptions,
   onGroup,
   onUngroup,
@@ -112,7 +115,12 @@ export function DetailPanel({
       <div className="tc-detail-badges">
         <span className={`badge ${entry.media_type}`}>{entry.media_type}</span>
         <span className="badge">{entry.signal_type}</span>
-        {entry.hidden ? <span className="badge off">versteckt</span> : null}
+        {entry.reviewed ? (
+          <span className="badge">erledigt</span>
+        ) : (
+          <span className="badge ok">offen</span>
+        )}
+        {entry.hidden ? <span className="badge off">ignoriert</span> : null}
         {entry.is_variant ? <span className="badge">Variante</span> : null}
         {entry.is_current ? <span className="badge ok">aktiv</span> : null}
       </div>
@@ -301,11 +309,24 @@ export function DetailPanel({
         >
           Zurücksetzen
         </button>
+        {onReviewed ? (
+          <button
+            className="tc-btn"
+            onClick={() => onReviewed(entry.id, !entry.reviewed)}
+            title={
+              entry.reviewed
+                ? "Zurück in die Inbox — der Eintrag gilt wieder als offen."
+                : "Als geprüft abschließen — verschwindet aus der Inbox, bleibt im Katalog."
+            }
+          >
+            {entry.reviewed ? "Wieder öffnen" : "Erledigt"}
+          </button>
+        ) : null}
         <button
           className="tc-btn"
           onClick={() => onHide(entry.id, !entry.hidden)}
         >
-          {entry.hidden ? "Wiederherstellen" : "Ausblenden"}
+          {entry.hidden ? "Nicht mehr ignorieren" : "Ignorieren"}
         </button>
       </div>
     </aside>

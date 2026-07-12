@@ -16,6 +16,8 @@ export interface CatalogEntryLike {
   media_type: MediaType;
   signal_type: SignalType;
   hidden: boolean;
+  /** Review state (control#27); optional so plain test fixtures still fit. */
+  reviewed?: boolean;
   contexts?: Context[];
   last_context?: Context | null;
   current_context?: Context | null;
@@ -93,11 +95,15 @@ export function selectByTab<T extends CatalogEntryLike>(
   }
 }
 
+/** Review-status filter: open = reviewed === false, reviewed = done. */
+export type ReviewFilter = "" | "open" | "reviewed";
+
 export interface CatalogTextFilter {
   search?: string;
   media?: MediaType | "";
   signal?: SignalType | "";
   context?: Context | "";
+  review?: ReviewFilter;
 }
 
 /** An entry matches a context filter if the context appears anywhere it is
@@ -112,13 +118,21 @@ function matchesContext(e: CatalogEntryLike, ctx: Context): boolean {
 
 export function filterCatalog<T extends CatalogEntryLike>(
   entries: T[],
-  { search = "", media = "", signal = "", context = "" }: CatalogTextFilter
+  {
+    search = "",
+    media = "",
+    signal = "",
+    context = "",
+    review = "",
+  }: CatalogTextFilter
 ): T[] {
   const q = search.toLowerCase().trim();
   return entries.filter((e) => {
     if (media && e.media_type !== media) return false;
     if (signal && e.signal_type !== signal) return false;
     if (context && !matchesContext(e, context)) return false;
+    if (review === "open" && (e.reviewed ?? false)) return false;
+    if (review === "reviewed" && !(e.reviewed ?? false)) return false;
     if (q && !e.key.toLowerCase().includes(q)) return false;
     return true;
   });

@@ -24,6 +24,7 @@ function entryKey(e: V3Entry): unknown[] {
     e.id,
     e.enum,
     e.hidden,
+    e.reviewed,
     e.parent_id,
     e.key,
     e.last_seen,

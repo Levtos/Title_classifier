@@ -130,3 +130,30 @@ describe("filterCatalog", () => {
     expect(filterCatalog(ctxRows, { context: "" }).length).toBe(4);
   });
 });
+
+describe("filterCatalog — review status (control#27)", () => {
+  const done = e("done", "Done Track", null, { reviewed: true });
+  const open = e("open", "Open Track", null, { reviewed: false });
+
+  it("'open' keeps only unreviewed entries", () => {
+    expect(filterCatalog([done, open], { review: "open" }).map((x) => x.id)).toEqual([
+      "open",
+    ]);
+  });
+
+  it("'reviewed' keeps only done entries", () => {
+    expect(
+      filterCatalog([done, open], { review: "reviewed" }).map((x) => x.id)
+    ).toEqual(["done"]);
+  });
+
+  it("no review filter keeps everything (Katalog = vollständige Bibliothek)", () => {
+    expect(filterCatalog([done, open], {})).toHaveLength(2);
+  });
+
+  it("entries without the reviewed field count as open", () => {
+    const legacy = e("legacy", "Legacy");
+    expect(filterCatalog([legacy], { review: "open" })).toHaveLength(1);
+    expect(filterCatalog([legacy], { review: "reviewed" })).toHaveLength(0);
+  });
+});

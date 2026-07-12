@@ -127,3 +127,12 @@ def test_merge_flags_override_conflict_keeping_target():
 def test_import_identity():
     rec = {"media_type": "game", "signal_type": "title", "key": "Astro Bot"}
     assert IO.import_identity(rec, "default") == ("default", "game", "title", "astro bot")
+
+
+def test_export_carries_reviewed_at():
+    done = _e("d", "Done", reviewed_at="2026-07-01T00:00:00+00:00")
+    open_e = _e("o", "Open")
+    payload = IO.build_export_payload([done, open_e], {"d": [], "o": []})
+    recs = {r["key"]: r for r in payload["entries"]}
+    assert recs["Done"]["reviewed_at"] == "2026-07-01T00:00:00+00:00"
+    assert recs["Open"]["reviewed_at"] is None

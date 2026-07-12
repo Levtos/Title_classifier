@@ -56,6 +56,10 @@ export interface V3Entry {
   is_variant: boolean;
   variants: V3Variant[];
   hidden: boolean;
+  /** Deliberately reviewed/done (reviewed_at set). Independent of enum and
+   * hidden — the Inbox shows only entries with reviewed === false. */
+  reviewed: boolean;
+  reviewed_at: string | null;
   is_current: boolean;
   effective_enum: number | null;
   current_context: Context | null;
@@ -97,6 +101,8 @@ export interface V3EntryDetail {
   parent_id: string | null;
   is_variant: boolean;
   hidden: boolean;
+  reviewed: boolean;
+  reviewed_at: string | null;
   first_seen: string;
   last_seen: string;
   seen_count: number;

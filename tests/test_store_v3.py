@@ -33,7 +33,8 @@ def _now():
 _CAT_KEYS = (
     "id", "scope", "media_type", "signal_type", "normalized_key", "key",
     "parent_id", "enum", "artist", "title", "album", "app_name",
-    "first_seen", "last_seen", "seen_count", "hidden_at", "updated_by", "updated_at",
+    "first_seen", "last_seen", "seen_count", "hidden_at", "reviewed_at",
+    "updated_by", "updated_at",
 )
 
 
@@ -47,7 +48,8 @@ class FakePool:
 
     # -- helpers -----------------------------------------------------------
     def _new_catalog_row(self, args) -> dict:
-        (rid, scope, mt, st, nkey, key, enum, artist, title, album, app_name, by) = args
+        (rid, scope, mt, st, nkey, key, enum, artist, title, album, app_name,
+         auto_reviewed, by) = args
         identity = (scope, mt, st, nkey)
         existing_id = self.identity.get(identity)
         if existing_id is not None:
@@ -65,6 +67,10 @@ class FakePool:
             ):
                 if val is not None:
                     row[col] = val
+            # Mirror the reviewed CASE: a stash sighting closes a still-open
+            # entry; nothing ever reopens or re-touches an existing review.
+            if row["reviewed_at"] is None and auto_reviewed:
+                row["reviewed_at"] = _now()
             row["updated_by"] = by
             return row
         row = {k: None for k in _CAT_KEYS}
@@ -72,7 +78,8 @@ class FakePool:
             id=rid, scope=scope, media_type=mt, signal_type=st,
             normalized_key=nkey, key=key, enum=enum, parent_id=None,
             first_seen=_now(), last_seen=_now(), seen_count=1,
-            hidden_at=None, updated_by=by, updated_at=_now(),
+            hidden_at=None, reviewed_at=_now() if auto_reviewed else None,
+            updated_by=by, updated_at=_now(),
         )
         self.catalog[rid] = row
         self.identity[identity] = rid
@@ -80,7 +87,8 @@ class FakePool:
 
     # -- asyncpg surface ---------------------------------------------------
     def _import_upsert(self, args):
-        (rid, scope, mt, st, nkey, key, enum, hidden_bool, seen, by) = args
+        (rid, scope, mt, st, nkey, key, enum, hidden_bool, reviewed_bool,
+         seen, by) = args
         identity = (scope, mt, st, nkey)
         existing_id = self.identity.get(identity)
         if existing_id is not None:
@@ -88,6 +96,7 @@ class FakePool:
             row["enum"] = enum
             row["key"] = key
             row["hidden_at"] = _now() if hidden_bool else None
+            row["reviewed_at"] = _now() if reviewed_bool else None
             row["seen_count"] = max(row["seen_count"], seen)
             row["updated_by"] = by
             return {"id": existing_id}
@@ -96,6 +105,7 @@ class FakePool:
             id=rid, scope=scope, media_type=mt, signal_type=st, normalized_key=nkey,
             key=key, enum=enum, parent_id=None,
             hidden_at=_now() if hidden_bool else None,
+            reviewed_at=_now() if reviewed_bool else None,
             first_seen=_now(), last_seen=_now(), seen_count=seen,
             updated_by=by, updated_at=_now(),
         )
@@ -178,6 +188,24 @@ class FakePool:
             if row is None:
                 return None
             row["parent_id"] = args[1]
+            row["updated_by"] = args[2]
+            return row
+        if "UPDATE tc_v3_catalog" in q and "SET reviewed_at" in q:
+            row = self.catalog.get(args[0])
+            if row is None:
+                return None
+            if args[1]:
+                # COALESCE(reviewed_at, now()): keep the original timestamp.
+                row["reviewed_at"] = row["reviewed_at"] or _now()
+            else:
+                row["reviewed_at"] = None
+            row["updated_by"] = args[2]
+            return row
+        if "UPDATE tc_v3_catalog" in q and "SET hidden_at" in q:
+            row = self.catalog.get(args[0])
+            if row is None:
+                return None
+            row["hidden_at"] = _now() if args[1] else None
             row["updated_by"] = args[2]
             return row
         if "UPDATE tc_v3_catalog" in q and "SET enum" in q:
@@ -802,3 +830,150 @@ async def test_import_rejects_invalid_records():
     ])
     assert report["imported"] == 0
     assert report["rejected"] == 2
+
+
+# ------------------------------------------------------------- reviewed (control#27)
+
+
+@_run
+async def test_new_entry_starts_open():
+    store = _store()
+    entry = await store.async_seen(
+        media_type="music", signal_type="title", key="New Track", context="homepod"
+    )
+    assert entry.reviewed_at is None
+    assert entry.is_reviewed is False
+
+
+@_run
+async def test_set_reviewed_and_reopen():
+    store = _store()
+    entry = await store.async_seen(
+        media_type="music", signal_type="title", key="Track", context="homepod"
+    )
+    done = await store.async_set_reviewed(entry.id, True)
+    assert done.is_reviewed is True
+    first_ts = done.reviewed_at
+
+    # Re-marking keeps the original timestamp (COALESCE semantics).
+    again = await store.async_set_reviewed(entry.id, True)
+    assert again.reviewed_at == first_ts
+
+    reopened = await store.async_set_reviewed(entry.id, False)
+    assert reopened.is_reviewed is False
+    assert reopened.reviewed_at is None
+
+
+@_run
+async def test_reviewed_unknown_id_returns_none():
+    store = _store()
+    assert await store.async_set_reviewed("nope", True) is None
+
+
+@_run
+async def test_enum_zero_can_be_reviewed_and_enum_is_independent():
+    store = _store()
+    entry = await store.async_seen(
+        media_type="music", signal_type="title", key="Keep Zero", context="homepod"
+    )
+    # Deliberately close at enum 0.
+    done = await store.async_set_reviewed(entry.id, True)
+    assert done.enum == 0 and done.is_reviewed is True
+
+    # Changing the enum later leaves the review state untouched.
+    updated = await store.async_set_enum(entry.id, 3)
+    assert updated.enum == 3
+    assert updated.is_reviewed is True
+
+    # And setting an enum never closes an OPEN entry silently.
+    other = await store.async_seen(
+        media_type="music", signal_type="title", key="Still Open", context="homepod"
+    )
+    classified = await store.async_set_enum(other.id, 2)
+    assert classified.enum == 2
+    assert classified.is_reviewed is False
+
+
+@_run
+async def test_hidden_and_reviewed_are_independent():
+    store = _store()
+    entry = await store.async_seen(
+        media_type="music", signal_type="title", key="Ignore Me", context="homepod"
+    )
+    hidden = await store.async_set_hidden(entry.id, True)
+    assert hidden.is_hidden is True
+    assert hidden.is_reviewed is False  # ignoring is NOT reviewing
+
+    done = await store.async_set_reviewed(entry.id, True)
+    assert done.is_hidden is True and done.is_reviewed is True
+
+    unhidden = await store.async_set_hidden(entry.id, False)
+    assert unhidden.is_hidden is False
+    assert unhidden.is_reviewed is True  # unhide does not reopen
+
+
+@_run
+async def test_reseeing_does_not_reset_or_set_reviewed():
+    store = _store()
+    entry = await store.async_seen(
+        media_type="music", signal_type="title", key="Replay", context="homepod"
+    )
+    await store.async_set_reviewed(entry.id, True)
+    seen_again = await store.async_seen(
+        media_type="music", signal_type="title", key="Replay", context="homepod"
+    )
+    assert seen_again.id == entry.id
+    assert seen_again.is_reviewed is True  # replay keeps it done
+
+    # And an open non-stash entry stays open on replay.
+    open_entry = await store.async_seen(
+        media_type="game", signal_type="title", key="Astro Bot", context="ps5"
+    )
+    replay = await store.async_seen(
+        media_type="game", signal_type="title", key="Astro Bot", context="ps5"
+    )
+    assert replay.id == open_entry.id
+    assert replay.is_reviewed is False
+
+
+@_run
+async def test_stash_seeding_sets_enum_and_reviewed_together():
+    store = _store()
+    entry = await store.async_seen(
+        media_type="video", signal_type="title", key="Scene Clip", context="stash"
+    )
+    # FLEET-43 enum floor AND the control#27 auto-review in one operation.
+    assert entry.enum == C.STASH_DEFAULT_ACTIVE_ENUM
+    assert entry.is_reviewed is True
+
+    # An existing open enum-0 video entry is lifted AND closed by a stash sighting.
+    other = await store.async_seen(
+        media_type="video", signal_type="title", key="Apple TV First", context="apple_tv"
+    )
+    assert other.enum == 0 and other.is_reviewed is False
+    lifted = await store.async_seen(
+        media_type="video", signal_type="title", key="Apple TV First", context="stash"
+    )
+    assert lifted.id == other.id
+    assert lifted.enum == C.STASH_DEFAULT_ACTIVE_ENUM
+    assert lifted.is_reviewed is True
+
+
+@_run
+async def test_import_export_round_trips_reviewed():
+    store = _store()
+    entry = await store.async_seen(
+        media_type="music", signal_type="title", key="Round Trip", context="homepod"
+    )
+    await store.async_set_reviewed(entry.id, True)
+    payload = await store.async_export(("music",))
+    rec = next(r for r in payload["entries"] if r["key"] == "Round Trip")
+    assert rec["reviewed_at"]  # exported
+
+    # Import into a fresh store keeps the reviewed flag.
+    other = _store()
+    report = await other.async_import(payload["entries"])
+    assert report["imported"] == 1
+    await other.async_load(media_types=("music",))
+    imported = next(iter(other.entries.values()))
+    assert imported.is_reviewed is True

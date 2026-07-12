@@ -156,6 +156,7 @@ class CatalogEntryV3:
     last_seen: str = ""
     seen_count: int = 0
     hidden_at: str | None = None
+    reviewed_at: str | None = None
     updated_by: str | None = None
 
     @property
@@ -167,6 +168,12 @@ class CatalogEntryV3:
     def is_hidden(self) -> bool:
         """Manually hidden/archived (hidden_at set)."""
         return bool(self.hidden_at)
+
+    @property
+    def is_reviewed(self) -> bool:
+        """Deliberately reviewed/done (reviewed_at set). Independent of enum
+        (0 is a valid classification) and of the hidden/ignore state."""
+        return bool(self.reviewed_at)
 
     @property
     def identity(self) -> tuple[str, str, str, str]:
@@ -190,6 +197,7 @@ class CatalogEntryV3:
             "last_seen": self.last_seen,
             "seen_count": self.seen_count,
             "hidden_at": self.hidden_at,
+            "reviewed_at": self.reviewed_at,
         }
 
 

@@ -64,15 +64,7 @@ export interface ClusterPick {
   reason: string;
 }
 
-/** Pick the single best variant cluster from the *visible* rows and prepare a
- *  group-dialog selection — the Varianten-Assistent. Never groups; just returns
- *  what to select + which master to preselect + why. Pure & testable.
- *
- *  Selection: the largest cluster; ties keep the one appearing first in the
- *  given (already filtered/sorted) row order — deterministic, respects the view.
- *  Master: an existing master (has variants) wins; otherwise the most-seen /
- *  oldest / shortest-key entry, tie-broken by id for stability. */
-export function pickBestCluster(rows: ClusterInput[]): ClusterPick | null {
+function collectClusters(rows: ClusterInput[]): ClusterInput[][] {
   const clusters = new Map<string, ClusterInput[]>();
   for (const e of rows) {
     if (e.hidden) continue; // never use hidden entries (matches candidate logic)
@@ -84,22 +76,45 @@ export function pickBestCluster(rows: ClusterInput[]): ClusterPick | null {
     arr.push(e);
     clusters.set(clusterKey, arr);
   }
+  // Map preserves first-appearance order → deterministic, respects the view.
+  return [...clusters.values()].filter((members) => members.length >= 2);
+}
 
-  // Largest cluster; Map preserves first-appearance order so a size tie keeps
-  // the earliest-in-view cluster (we only replace on strictly greater size).
+function toPick(members: ClusterInput[]): ClusterPick {
+  const master = pickMaster(members);
+  return {
+    ids: members.map((e) => e.id),
+    masterId: master.id,
+    reason: `${members.length} wahrscheinliche Varianten von „${master.key}".`,
+  };
+}
+
+/** Pick the single best variant cluster from the *visible* rows and prepare a
+ *  group-dialog selection — the Varianten-Assistent. Never groups; just returns
+ *  what to select + which master to preselect + why. Pure & testable.
+ *
+ *  Selection: the largest cluster; ties keep the one appearing first in the
+ *  given (already filtered/sorted) row order — deterministic, respects the view.
+ *  Master: an existing master (has variants) wins; otherwise the most-seen /
+ *  oldest / shortest-key entry, tie-broken by id for stability. */
+export function pickBestCluster(rows: ClusterInput[]): ClusterPick | null {
+  // Largest cluster; we only replace on strictly greater size, so a size tie
+  // keeps the earliest-in-view cluster.
   let best: ClusterInput[] | null = null;
-  for (const members of clusters.values()) {
-    if (members.length < 2) continue;
+  for (const members of collectClusters(rows)) {
     if (best === null || members.length > best.length) best = members;
   }
-  if (best === null) return null;
+  return best === null ? null : toPick(best);
+}
 
-  const master = pickMaster(best);
-  return {
-    ids: best.map((e) => e.id),
-    masterId: master.id,
-    reason: `${best.length} wahrscheinliche Varianten von „${master.key}".`,
-  };
+/** EVERY candidate cluster in the given rows, largest first (ties keep the
+ *  first-appearance order) — the work list for the continuous variant queue
+ *  mode. Same cluster/master rules as pickBestCluster. Pure & testable. */
+export function pickAllClusters(rows: ClusterInput[]): ClusterPick[] {
+  return collectClusters(rows)
+    .map((members, order) => ({ members, order }))
+    .sort((a, b) => b.members.length - a.members.length || a.order - b.order)
+    .map(({ members }) => toPick(members));
 }
 
 function pickMaster(members: ClusterInput[]): ClusterInput {
