@@ -76,6 +76,8 @@ def entry_view(
             for c in sorted(children, key=lambda c: c.key.lower())
         ],
         "hidden": entry.is_hidden,
+        "reviewed": entry.is_reviewed,
+        "reviewed_at": entry.reviewed_at,
         "is_current": is_current,
         # effective_enum / context only meaningful while the entry is playing.
         "effective_enum": effective_enum if is_current else None,
@@ -203,6 +205,8 @@ def build_entry_detail(
         "parent_id": entry.parent_id,
         "is_variant": is_variant,
         "hidden": entry.is_hidden,
+        "reviewed": entry.is_reviewed,
+        "reviewed_at": entry.reviewed_at,
         "first_seen": entry.first_seen,
         "last_seen": entry.last_seen,
         "seen_count": entry.seen_count,

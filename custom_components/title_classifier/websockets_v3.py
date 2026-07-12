@@ -251,6 +251,28 @@ async def ws_v3_set_hidden(hass, connection, msg) -> None:
 
 
 @websocket_api.websocket_command({
+    vol.Required("type"): _wt("set_reviewed"),
+    vol.Required("entry_id"): cv.string,
+    vol.Required("reviewed"): bool,
+})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_v3_set_reviewed(hass, connection, msg) -> None:
+    """Mark an entry reviewed/done or reopen it (control#27). Independent of
+    enum and hidden — this is the deliberate Inbox close action."""
+    rt = v3_runtime_for_entry(hass, msg["entry_id"])
+    if rt is None:
+        connection.send_error(msg["id"], "not_found", "no v3 watcher available")
+        return
+    entry = await rt.store.async_set_reviewed(msg["entry_id"], msg["reviewed"])
+    if entry is None:
+        connection.send_error(msg["id"], "not_found", "entry not found")
+        return
+    await _after_mutation(hass, msg["entry_id"])
+    connection.send_result(msg["id"], {"ok": True, "reviewed": entry.is_reviewed})
+
+
+@websocket_api.websocket_command({
     vol.Required("type"): _wt("delete_entry"),
     vol.Required("entry_id"): cv.string,
 })
@@ -410,6 +432,7 @@ WEBSOCKETS_V3 = [
     ws_v3_ungroup,
     ws_v3_set_context_override,
     ws_v3_set_hidden,
+    ws_v3_set_reviewed,
     ws_v3_delete_entry,
     ws_v3_rename_entry,
     ws_v3_set_media_type,

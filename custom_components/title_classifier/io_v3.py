@@ -61,6 +61,7 @@ def build_export_payload(
             "signal_type": entry.signal_type,
             "enum": entry.enum,
             "hidden_at": entry.hidden_at,
+            "reviewed_at": entry.reviewed_at,
             # Parent referenced by its normalized_key (id-independent).
             "parent_key": parent.normalized_key if parent is not None else None,
             "contexts": [

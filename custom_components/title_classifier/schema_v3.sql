@@ -61,6 +61,12 @@ CREATE TABLE IF NOT EXISTS tc_v3_catalog (
     seen_count     integer     NOT NULL DEFAULT 0,
     hidden_at      timestamptz,
 
+    -- Review state (control#27): NULL = new/open (shows in the Inbox), set =
+    -- deliberately reviewed/done. Independent of `enum` (0 is a valid value)
+    -- and of `hidden_at` (ignore/archive keeps its own semantics incl. the
+    -- auto-unhide grace — none of that applies to reviewed_at).
+    reviewed_at    timestamptz,
+
     -- Instance id of the last writer — used to suppress self-NOTIFY echoes.
     updated_by     text,
     updated_at     timestamptz NOT NULL DEFAULT now(),
@@ -103,6 +109,25 @@ CREATE TABLE IF NOT EXISTS tc_v3_entry_context (
 
     CONSTRAINT tc_v3_entry_context_pkey PRIMARY KEY (entry_id, context, source_app)
 );
+
+
+-- Migration (control#27): add reviewed_at to pre-existing installations and
+-- backfill EXACTLY ONCE, atomically with the column add. Every entry that
+-- existed before the upgrade counts as reviewed (the Inbox starts empty);
+-- only titles created after the upgrade start open (reviewed_at IS NULL).
+-- Idempotent: once the column exists this whole block is a no-op, so a later
+-- schema apply can never close entries that are legitimately open.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'tc_v3_catalog' AND column_name = 'reviewed_at'
+    ) THEN
+        ALTER TABLE tc_v3_catalog ADD COLUMN reviewed_at timestamptz;
+        UPDATE tc_v3_catalog
+           SET reviewed_at = COALESCE(hidden_at, updated_at, now());
+    END IF;
+END $$;
 
 
 -- Real-time sync: both tables emit a NOTIFY on 'tc_v3_change'. Listeners ignore

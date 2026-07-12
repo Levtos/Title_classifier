@@ -48,7 +48,7 @@ _GRACE_SQL = f"{int(_MANUAL_HIDE_GRACE.total_seconds())} seconds"
 _CAT_COLUMNS = (
     "id, scope, media_type, signal_type, normalized_key, key, parent_id, enum, "
     "artist, title, album, app_name, first_seen, last_seen, seen_count, "
-    "hidden_at, updated_by, updated_at"
+    "hidden_at, reviewed_at, updated_by, updated_at"
 )
 _CTX_COLUMNS = (
     "entry_id, context, source_app, enum_override, first_seen, last_seen, "
@@ -86,6 +86,7 @@ def _row_to_entry(record: Any) -> CatalogEntryV3:
         last_seen=_iso(record["last_seen"]),
         seen_count=int(record["seen_count"]),
         hidden_at=_iso(record["hidden_at"]) or None,
+        reviewed_at=_iso(record["reviewed_at"]) or None,
         updated_by=record["updated_by"],
     )
 
@@ -197,14 +198,21 @@ class CatalogStoreV3:
         seed_enum = (
             STASH_DEFAULT_ACTIVE_ENUM if context == CONTEXT_STASH else DEFAULT_ENUM
         )
+        # Stash auto-classification counts as the review (control#27): the same
+        # sighting that seeds/lifts the enum also marks the entry reviewed, so
+        # stash titles never appear in the Inbox. Non-stash sightings never
+        # touch reviewed_at — in particular, re-seeing a title does NOT reopen
+        # or auto-close it (no auto-unhide-style grace for the review state).
+        auto_reviewed = context == CONTEXT_STASH
 
         row = await self._pool.fetchrow(
             f"""
             INSERT INTO tc_v3_catalog
                 (id, scope, media_type, signal_type, normalized_key, key, enum,
-                 artist, title, album, app_name,
+                 artist, title, album, app_name, reviewed_at,
                  first_seen, last_seen, seen_count, updated_by)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now(), now(), 1, $12)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+                    CASE WHEN $12 THEN now() ELSE NULL END, now(), now(), 1, $13)
             ON CONFLICT (scope, media_type, signal_type, normalized_key) DO UPDATE SET
                 last_seen  = GREATEST(tc_v3_catalog.last_seen, EXCLUDED.last_seen),
                 seen_count = tc_v3_catalog.seen_count + 1,
@@ -216,6 +224,9 @@ class CatalogStoreV3:
                 title      = COALESCE(EXCLUDED.title,    tc_v3_catalog.title),
                 album      = COALESCE(EXCLUDED.album,    tc_v3_catalog.album),
                 app_name   = COALESCE(EXCLUDED.app_name, tc_v3_catalog.app_name),
+                reviewed_at = CASE
+                    WHEN tc_v3_catalog.reviewed_at IS NULL AND $12 THEN now()
+                    ELSE tc_v3_catalog.reviewed_at END,
                 hidden_at  = CASE
                     WHEN tc_v3_catalog.hidden_at IS NOT NULL
                          AND tc_v3_catalog.hidden_at < now() - INTERVAL '{_GRACE_SQL}'
@@ -225,7 +236,8 @@ class CatalogStoreV3:
             RETURNING {_CAT_COLUMNS}
             """,
             new_id(), self._scope, media_type, signal_type, normalized, key,
-            seed_enum, artist, title, album, app_name, self._instance_id,
+            seed_enum, artist, title, album, app_name, auto_reviewed,
+            self._instance_id,
         )
         entry = _row_to_entry(row)
         self._entries[entry.id] = entry
@@ -375,6 +387,33 @@ class CatalogStoreV3:
             RETURNING {_CAT_COLUMNS}
             """,
             entry_id, hidden, self._instance_id,
+        )
+        if row is None:
+            return None
+        entry = _row_to_entry(row)
+        self._entries[entry.id] = entry
+        return entry
+
+    async def async_set_reviewed(
+        self, entry_id: str, reviewed: bool
+    ) -> CatalogEntryV3 | None:
+        """Mark an entry reviewed/done, or reopen it (reviewed_at → NULL).
+
+        Independent of enum (an entry may be deliberately done at enum 0) and
+        of hidden_at (ignore/archive keeps its own lifecycle). Re-marking an
+        already-reviewed entry keeps its original review timestamp.
+        """
+        row = await self._pool.fetchrow(
+            f"""
+            UPDATE tc_v3_catalog
+               SET reviewed_at = CASE
+                       WHEN $2 THEN COALESCE(reviewed_at, now())
+                       ELSE NULL END,
+                   updated_by = $3, updated_at = now()
+             WHERE id = $1
+            RETURNING {_CAT_COLUMNS}
+            """,
+            entry_id, reviewed, self._instance_id,
         )
         if row is None:
             return None
@@ -601,13 +640,16 @@ class CatalogStoreV3:
             f"""
             INSERT INTO tc_v3_catalog
                 (id, scope, media_type, signal_type, normalized_key, key, enum,
-                 hidden_at, first_seen, last_seen, seen_count, updated_by)
+                 hidden_at, reviewed_at, first_seen, last_seen, seen_count,
+                 updated_by)
             VALUES ($1, $2, $3, $4, $5, $6, $7,
-                    CASE WHEN $8 THEN now() ELSE NULL END, now(), now(), $9, $10)
+                    CASE WHEN $8 THEN now() ELSE NULL END,
+                    CASE WHEN $9 THEN now() ELSE NULL END, now(), now(), $10, $11)
             ON CONFLICT (scope, media_type, signal_type, normalized_key) DO UPDATE SET
                 enum       = EXCLUDED.enum,
                 key        = EXCLUDED.key,
                 hidden_at  = EXCLUDED.hidden_at,
+                reviewed_at = EXCLUDED.reviewed_at,
                 seen_count = GREATEST(tc_v3_catalog.seen_count, EXCLUDED.seen_count),
                 updated_by = EXCLUDED.updated_by,
                 updated_at = now()
@@ -615,8 +657,8 @@ class CatalogStoreV3:
             """,
             new_id(), record.get("scope") or self._scope, record["media_type"],
             record["signal_type"], nkey, key, clamp_enum(record.get("enum", 0)),
-            bool(record.get("hidden_at")), int(record.get("seen_count", 0)),
-            self._instance_id,
+            bool(record.get("hidden_at")), bool(record.get("reviewed_at")),
+            int(record.get("seen_count", 0)), self._instance_id,
         )
         return str(row["id"])
 

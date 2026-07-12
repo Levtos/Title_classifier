@@ -171,3 +171,29 @@ def test_ordering_unmapped_first():
     b = _e("b", "Unmapped", enum=0, last_seen="2026-01-05T00:00:00+00:00")
     rows = A.select_and_view(_entries(a, b), {})
     assert [r["id"] for r in rows] == ["b", "a"]
+
+
+def test_entry_view_carries_reviewed_state():
+    open_e = _e("o", "Open")
+    done_e = _e("d", "Done", reviewed_at="2026-07-01T00:00:00+00:00")
+    rows = A.select_and_view(_entries(open_e, done_e), {})
+    by_id = {r["id"]: r for r in rows}
+    assert by_id["o"]["reviewed"] is False
+    assert by_id["o"]["reviewed_at"] is None
+    assert by_id["d"]["reviewed"] is True
+    assert by_id["d"]["reviewed_at"] == "2026-07-01T00:00:00+00:00"
+
+
+def test_entry_detail_carries_reviewed_state():
+    e = _e("d", "Done", reviewed_at="2026-07-01T00:00:00+00:00")
+    detail = A.build_entry_detail(e, [], None, [])
+    assert detail["reviewed"] is True
+    assert detail["reviewed_at"] == "2026-07-01T00:00:00+00:00"
+
+
+def test_reviewed_enum_zero_still_listed():
+    # Enum 0 + reviewed is a valid, fully classified state — the list view
+    # must not treat it as unclassified-only data.
+    e = _e("z", "Zero Done", enum=0, reviewed_at="2026-07-01T00:00:00+00:00")
+    rows = A.select_and_view(_entries(e), {})
+    assert rows[0]["enum"] == 0 and rows[0]["reviewed"] is True
