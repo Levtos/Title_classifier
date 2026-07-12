@@ -1,5 +1,48 @@
 # Changelog
 
+## 3.4.0 - 2026-07-12 — Inbox-Status „erledigt", 5-Watcher-Übersicht, Variantenmodus
+
+Zusammenhängender UX-/Logik-Umbau (GitLab `ha-platform/control#27`). Drei
+unabhängige Zustände pro Katalogeintrag: `enum` (0 ist gültig), **neu**
+`reviewed_at` (NULL = offen, gesetzt = erledigt) und `hidden_at` (Ignorieren,
+unverändert inkl. Auto-Unhide-Grace).
+
+- **Datenmodell/Migration:** additive Spalte `tc_v3_catalog.reviewed_at`;
+  einmaliger, idempotenter Backfill im Schema-Apply (guarded DO-Block):
+  ALLE Bestandseinträge gelten als erledigt (`COALESCE(hidden_at, updated_at)`),
+  die Inbox startet nach dem Upgrade leer. Nur neue Titel beginnen offen.
+- **Inbox = Arbeitswarteschlange:** Filter jetzt `reviewed IS NULL` statt
+  „Enum 0"; Aktionen „Erledigt" einzeln + als Stapel; Enum-Speichern schließt
+  NICHT stillschweigend ab; Enum-0-Titel können bewusst erledigt werden.
+  Wording: „Neue Titel prüfen", „versteckt" → **„ignoriert"**.
+- **Stash:** das Enum-1-Seeding (FLEET-43) setzt im selben Vorgang
+  `reviewed_at` — Stash-Titel erscheinen weiterhin nie in der Inbox.
+- **Erneute Sichtung** setzt `reviewed_at` nie zurück (kein Auto-Reopen); die
+  Auto-Unhide-Grace betrifft ausschließlich `hidden_at`.
+- **Übersicht: genau 5 Watcher.** Ein Watcher pro Context; HomePod/PC/PS5/
+  Apple TV als Einzelkarten ohne Gruppenrahmen, Stash als EINE Karte mit vier
+  kompakten Slot-Zeilen (x/4 Slots online). Statistiken dedupliziert:
+  „Einträge" aus dem Union-Store, „Offen" (statt „Unklassifiziert") über die
+  geteilte reviewed-Definition — vorher zählten die 4 Stash-Slots + Apple TV
+  denselben video-Katalog fünffach. Statusleiste nutzt dieselben Definitionen.
+- **Katalog:** Struktur-Filter (Master/Varianten/eigenständig), Status-Filter
+  (offen/erledigt), Kandidaten-Badge (⛓) und 🪄 Variantenmodus jetzt auch im
+  Katalog; Tab „Ausgeblendet" → „Ignoriert"; Badge „Enum 0" ersetzt durch
+  „offen"; Detailpanel mit „Erledigt"/„Wieder öffnen".
+- **Fortlaufender Variantenmodus:** Queue über alle Kandidaten-Cluster
+  (`pickAllClusters` + purer Zustandsautomat), Aktionen „Als Variante
+  speichern & weiter", „Kein Master — eigenständig erledigen", „Überspringen",
+  „Zurück", „Beenden"; erfolgreiche Zuordnung erledigt die offenen Mitglieder;
+  Snapshot-Technik gegen Poll-Umsortierung; keine neue Stapel-Backend-API.
+- **WS/API additiv:** `list_entries`/`entry_detail` liefern `reviewed` +
+  `reviewed_at`; neuer Command `title_classifier/v3/set_reviewed`;
+  Export/Import transportiert `reviewed_at`. Sensor-Entity-IDs/-Slugs,
+  Effective-Enum-Resolver und alle HA-Contracts unverändert; die vier
+  Stash-Slots bleiben im Backend getrennte Subentries.
+- Tests: +24 pytest (reviewed-Modell, Stash-Seeding, Schema-Invarianten,
+  API/IO), +34 Vitest (Inbox-Filter, Queue, Struktur-/Status-Filter,
+  5-Watcher-Statistik); Suiten 213/127 grün.
+
 ## 3.3.3 - 2026-07-07 — Übersicht: Master-Gruppe pro Typ
 
 Reine UX-Änderung: Die **Übersicht** gruppiert die Watcher jetzt nach `context`.
