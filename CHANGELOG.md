@@ -1,5 +1,27 @@
 # Changelog
 
+## 3.5.0 - 2026-07-22 — Quell-Entität sichtbar + im Reconfigure änderbar
+
+Behebt, dass die beim Anlegen gewählte Quell-Entität eines Watchers danach
+weder sichtbar noch änderbar war (GitLab `ha-platform/control#52`). Rein
+additiv — keine Änderung am Watcher-/Stash-Slot-Modell und keine
+Klassifizierungslogik.
+
+- **Reconfigure zeigt und ändert `source_entity`:** Der bestehende
+  Reconfigure-Flow (Top-Level-Watcher **und** Stash-Slot-Subentries) enthält
+  jetzt die beobachtete Quell-Entität, vorbelegt mit dem aktuellen Wert und
+  editierbar. Der **Name bleibt fest** — er definiert den `entity_id`-Slug
+  (`sensor.title_classifier_<slug>_enum/raw/catalog`) und damit den
+  Automationsvertrag.
+- **Verlustfrei:** Eine geänderte Quelle bindet beim automatischen Reload nur
+  den Runtime-Beobachter neu. Katalogdaten (Postgres, gekeyt über
+  scope/media_type/signal_type/Titel), Entity-IDs, `unique_id` und die Trennung
+  der vier Stash-Slots bleiben unverändert.
+- **Sichtbar ohne Reconfigure:** Die Enum-/Raw-/Katalog-Sensoren jedes Watchers
+  tragen jetzt `source_entity`, `online_entity` und `artwork_entity_id` als
+  Attribute — die Verdrahtung je Slot ist damit direkt in den Entwicklerwerkzeugen
+  prüfbar.
+
 ## 3.4.0 - 2026-07-12 — Inbox-Status „erledigt", 5-Watcher-Übersicht, Variantenmodus
 
 Zusammenhängender UX-/Logik-Umbau (GitLab `ha-platform/control#27`). Drei
