@@ -41,8 +41,9 @@
       },
       "reconfigure": {
         "title": "Neu konfigurieren",
-        "description": "Beim DB-Hub die Verbindung anpassen (gilt für alle Watcher), beim Watcher die Achsen. entry_id bleibt erhalten.",
+        "description": "Beim DB-Hub die Verbindung anpassen (gilt für alle Watcher), beim Watcher die beobachtete Quell-Entität und die Achsen. Name und entry_id bleiben erhalten.",
         "data": {
+          "source_entity": "Welche Entität soll beobachtet werden?",
           "media_type": "Medienart (Musik / Spiel / Video)",
           "context": "Kontext (HomePod / PC / PS5 / Switch / Stash / Apple TV)",
           "signal_type": "Signaltyp (Titel / App)",
@@ -109,8 +110,9 @@
         },
         "reconfigure": {
           "title": "Watcher neu konfigurieren",
-          "description": "Achsen dieses Watchers ändern. Name und Quell-Entität bleiben fest.",
+          "description": "Beobachtete Quell-Entität und Achsen dieses Watchers ändern. Der Name bleibt fest (er definiert die Entity-IDs).",
           "data": {
+            "source_entity": "Welche Entität soll beobachtet werden?",
             "media_type": "Medientyp (music / game / video)",
             "context": "Kontext (homepod / pc / ps5 / switch / stash / apple_tv)",
             "signal_type": "Signaltyp (title / app)",

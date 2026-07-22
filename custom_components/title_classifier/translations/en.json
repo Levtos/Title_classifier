@@ -41,8 +41,9 @@
       },
       "reconfigure": {
         "title": "Reconfigure",
-        "description": "For the DB hub, update the connection (applies to all watchers); for a watcher, its axes. entry_id is kept.",
+        "description": "For the DB hub, update the connection (applies to all watchers); for a watcher, its watched source entity and axes. The name and entry_id are kept.",
         "data": {
+          "source_entity": "Which entity should be watched?",
           "media_type": "Media type (music / game / video)",
           "context": "Context (homepod / pc / ps5 / switch / stash / apple_tv)",
           "signal_type": "Signal type (title / app)",
@@ -109,8 +110,9 @@
         },
         "reconfigure": {
           "title": "Reconfigure watcher",
-          "description": "Update this watcher's axes. Name and source entity stay fixed.",
+          "description": "Update this watcher's watched source entity and axes. The name stays fixed (it defines the entity IDs).",
           "data": {
+            "source_entity": "Which entity should be watched?",
             "media_type": "Media type (music / game / video)",
             "context": "Context (homepod / pc / ps5 / switch / stash / apple_tv)",
             "signal_type": "Signal type (title / app)",

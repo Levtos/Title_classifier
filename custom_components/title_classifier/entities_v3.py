@@ -69,6 +69,11 @@ class _TC3Base(SensorEntity):
             "context": rt.context,
             "signal_type": rt.signal_type,
             "source_app": rt.source_app or None,
+            # Configured source entities, surfaced so the watcher's wiring is
+            # verifiable without opening the reconfigure flow (control#52).
+            "source_entity": rt.source_entity,
+            "online_entity": rt.online_entity,
+            "artwork_entity_id": rt.artwork_entity_id,
             "artwork": rt.current_artwork,
         }
 

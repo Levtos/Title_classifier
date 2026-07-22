@@ -60,6 +60,31 @@ def test_watcher_name_slug_matches_entity_id_contract():
     assert F.watcher_name_slug("Stash Slot 1") == F.watcher_name_slug("stash slot 1")
 
 
+def test_v3_reconfigure_data_carries_source_entity():
+    # control#52: a changed source entity must be persisted on reconfigure.
+    d = F.v3_reconfigure_data(
+        _form(**{C.CONF_SOURCE_ENTITY: "sensor.wohnzimmer_stash_slot_2_title"})
+    )
+    assert d[C.CONF_SOURCE_ENTITY] == "sensor.wohnzimmer_stash_slot_2_title"
+    # Axis data still assembled as usual.
+    assert d[C.CONF_CONTEXT] == "stash"
+    assert d[C.CONF_MEDIA_TYPE] == "video"
+
+
+def test_v3_reconfigure_data_never_carries_name():
+    # The name drives the entity_id slug and must stay fixed — never merged back.
+    d = F.v3_reconfigure_data(_form())
+    assert "name" not in d
+
+
+def test_v3_reconfigure_data_omits_absent_source():
+    # No source in the form → key absent, so a merge does not wipe the stored one.
+    form = _form()
+    del form[C.CONF_SOURCE_ENTITY]
+    d = F.v3_reconfigure_data(form)
+    assert C.CONF_SOURCE_ENTITY not in d
+
+
 def test_v3_axis_data_normalises_and_defaults():
     d = F.v3_axis_data(_form(**{C.CONF_SOURCE_APP: "  Netflix ", C.CONF_SCOPE: ""}))
     assert d[C.CONF_SOURCE_APP] == "Netflix"          # trimmed

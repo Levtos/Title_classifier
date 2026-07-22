@@ -97,6 +97,7 @@ _DB_KEYS = (CONF_DB_HOST, CONF_DB_PORT, CONF_DB_NAME, CONF_DB_USER, CONF_DB_PASS
 from .flow_data import inactive_to_list as _inactive_to_list  # noqa: E402
 from .flow_data import inactive_to_str as _inactive_to_str  # noqa: E402
 from .flow_data import v3_axis_data as _v3_axis_data  # noqa: E402
+from .flow_data import v3_reconfigure_data as _v3_reconfigure_data  # noqa: E402
 from .flow_data import watcher_name_slug  # noqa: E402
 from .flow_data import watcher_subentry_data  # noqa: E402
 
@@ -139,11 +140,22 @@ def v3_watcher_schema(d: dict[str, Any] | None = None) -> vol.Schema:
         )
 
     schema: dict[Any, Any] = {}
-    if not d:  # name + source only chosen at creation
+    if not d:  # name is chosen only at creation — it drives the entity_id slug
         schema[vol.Required(CONF_NAME)] = selector.TextSelector()
-        schema[vol.Required(CONF_SOURCE_ENTITY)] = selector.EntitySelector(
-            selector.EntitySelectorConfig(domain=["media_player", "sensor"])
+    # source_entity is always shown: required on add, editable+prefilled on
+    # reconfigure (control#52). Changing it only re-binds the runtime observer;
+    # entity_ids (name-slug) and catalog rows stay untouched.
+    source_field = (
+        vol.Required(CONF_SOURCE_ENTITY)
+        if not d
+        else vol.Required(
+            CONF_SOURCE_ENTITY,
+            description={"suggested_value": d.get(CONF_SOURCE_ENTITY)},
         )
+    )
+    schema[source_field] = selector.EntitySelector(
+        selector.EntitySelectorConfig(domain=["media_player", "sensor"])
+    )
     schema.update({
         vol.Required(
             CONF_MEDIA_TYPE, default=d.get(CONF_MEDIA_TYPE, MEDIA_TYPES[0])
@@ -358,9 +370,12 @@ class ConfigFlowHelper:
     async def _reconfigure_watcher_v3(
         self, entry: ConfigEntry, user_input: dict[str, Any] | None
     ) -> FlowResult:
-        """Reconfigure a v3 watcher's axes (name/source stay fixed)."""
+        """Reconfigure a v3 watcher's axes and its source entity (control#52).
+
+        Name stays fixed (entity_id contract); source_entity can now change.
+        """
         if user_input is not None:
-            new_data = {**entry.data, **_v3_axis_data(user_input)}
+            new_data = {**entry.data, **_v3_reconfigure_data(user_input)}
             return self.flow.async_update_reload_and_abort(entry, data=new_data)
         return self.flow.async_show_form(
             step_id="reconfigure", data_schema=self._v3_watcher_schema(dict(entry.data))
@@ -505,7 +520,7 @@ class WatcherSubentryFlowHandler(ConfigSubentryFlow):
     async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None):
         subentry = self._get_reconfigure_subentry()
         if user_input is not None:
-            new_data = {**subentry.data, **_v3_axis_data(user_input)}
+            new_data = {**subentry.data, **_v3_reconfigure_data(user_input)}
             return self.async_update_and_abort(
                 self._get_entry(), subentry, data=new_data
             )

@@ -80,6 +80,20 @@ def v3_axis_data(src: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def v3_reconfigure_data(user_input: dict[str, Any]) -> dict[str, Any]:
+    """Data to merge into an existing v3 watcher on reconfigure (control#52).
+
+    The axis fields plus an editable ``source_entity`` when the form supplied
+    one. ``name`` is intentionally never here — it drives the
+    ``sensor.title_classifier_<slug>_*`` entity_id contract and stays fixed.
+    """
+    data = v3_axis_data(user_input)
+    source = user_input.get(CONF_SOURCE_ENTITY)
+    if source:
+        data[CONF_SOURCE_ENTITY] = source
+    return data
+
+
 def watcher_subentry_data(user_input: dict[str, Any]) -> dict[str, Any]:
     """Config-subentry data for a v3 watcher nested under the hub. No
     hub_entry_id — the subentry lives under the hub entry already."""
