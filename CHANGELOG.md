@@ -1,5 +1,25 @@
 # Changelog
 
+## 3.5.1 - 2026-07-28 — Apple-TV-Videoidentität aus echten Metadaten
+
+Behebt, dass der Apple-TV-Video-Watcher bei Plex-/Jellyfin-Ereignissen die
+App- oder Quellenkennung (`music_assistant`, `com.plexapp.plex`, `Plex` usw.)
+als Katalogtitel persistiert. Bei vorhandener Videometadatenlage wird jetzt
+`media_artist` als Serienidentität und ansonsten `media_title` als Film- bzw.
+Inhaltstitel verwendet; `media_album_name` bleibt ergänzende Anzeigeinformation.
+
+- Echte Video-Metadaten haben Vorrang vor `app_name`, `app_id` und `source`.
+- Ein App-/Source-only-Fallback wird erst nach einer kurzen Stabilitätsfrist
+  persistiert, damit verzögert eintreffende Plex-/Jellyfin-Metadaten keinen
+  dauerhaften technischen Phantomtitel erzeugen.
+- Native Apple-TV-Quellen und Music-Assistant-Spiegel bleiben unverändert
+  getrennte Beobachtungspfade. Musik-, Stash- und andere bestehende Watcher,
+  Entity-IDs, Sensor-Slugs, Enum-/Sichtungsverträge und die Sichtungszählung
+  bleiben unverändert.
+- Bereits vorhandene Katalogzeilen werden nicht automatisch gelöscht oder
+  umklassifiziert; sie bleiben für eine kontrollierte fachliche Bereinigung
+  sichtbar.
+
 ## 3.5.0 - 2026-07-22 — Quell-Entität sichtbar + im Reconfigure änderbar
 
 Behebt, dass die beim Anlegen gewählte Quell-Entität eines Watchers danach
