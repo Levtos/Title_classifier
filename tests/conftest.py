@@ -40,6 +40,12 @@ def _make_stub_homeassistant() -> None:
 
     ha_core.callback = _cb
 
+    ha_config_entries = types.ModuleType("homeassistant.config_entries")
+    ha_config_entries.ConfigEntry = object
+
+    ha_const = types.ModuleType("homeassistant.const")
+    ha_const.CONF_NAME = "name"
+
     ha_helpers = types.ModuleType("homeassistant.helpers")
     ha_helpers.__path__ = []
     ha_helpers_storage = types.ModuleType("homeassistant.helpers.storage")
@@ -56,12 +62,20 @@ def _make_stub_homeassistant() -> None:
 
     ha_helpers_storage.Store = _Store
 
+    ha_helpers_event = types.ModuleType("homeassistant.helpers.event")
+    ha_helpers_event.async_track_state_change_event = (
+        lambda *a, **kw: lambda: None
+    )
+
     sys.modules.setdefault("homeassistant", ha)
     sys.modules.setdefault("homeassistant.util", ha_util)
     sys.modules.setdefault("homeassistant.util.dt", ha_dt)
     sys.modules.setdefault("homeassistant.core", ha_core)
+    sys.modules.setdefault("homeassistant.config_entries", ha_config_entries)
+    sys.modules.setdefault("homeassistant.const", ha_const)
     sys.modules.setdefault("homeassistant.helpers", ha_helpers)
     sys.modules.setdefault("homeassistant.helpers.storage", ha_helpers_storage)
+    sys.modules.setdefault("homeassistant.helpers.event", ha_helpers_event)
 
 
 _make_stub_homeassistant()
@@ -171,3 +185,5 @@ runtime_select = _load("runtime_select", "runtime_select.py")
 sys.modules["tc_runtime_select"] = runtime_select
 artwork_v3 = _load("artwork_v3", "artwork_v3.py")
 sys.modules["tc_artwork_v3"] = artwork_v3
+runtime_v3 = _load("runtime_v3", "runtime_v3.py")
+sys.modules["tc_runtime_v3"] = runtime_v3

@@ -108,6 +108,158 @@ def test_apple_tv_app_signal_netflix():
     assert key == "Netflix"
 
 
+def test_apple_tv_plex_series_uses_artist_as_catalog_identity():
+    resolution = F.derive_resolution(
+        media_type="video",
+        signal_type="app",
+        context="apple_tv",
+        state="playing",
+        attributes={
+            "media_artist": "Battlestar Galactica",
+            "media_album_name": "Staffel 1",
+            "media_title": "S 1 · F 12: Kobol",
+            "app_name": "Plex",
+            "app_id": "com.plexapp.plex",
+            "source": "Plex",
+        },
+        is_sensor=False,
+        inactive_values=_IV,
+    )
+    assert resolution.key == "Battlestar Galactica"
+    assert resolution.signal_type == "title"
+    assert resolution.defer_persistence is False
+
+
+def test_apple_tv_plex_film_uses_media_title():
+    resolution = F.derive_resolution(
+        media_type="video",
+        signal_type="app",
+        context="apple_tv",
+        state="playing",
+        attributes={
+            "media_title": "Blade Runner 2049",
+            "app_name": "Plex",
+            "app_id": "com.plexapp.plex",
+            "source": "Plex",
+        },
+        is_sensor=False,
+        inactive_values=_IV,
+    )
+    assert resolution.key == "Blade Runner 2049"
+    assert resolution.signal_type == "title"
+
+
+def test_apple_tv_jellyfin_series_uses_media_artist():
+    resolution = F.derive_resolution(
+        media_type="video",
+        signal_type="title",
+        context="apple_tv",
+        state="playing",
+        attributes={
+            "media_artist": "The Expanse",
+            "media_album_name": "Season 2",
+            "media_title": "Doors & Corners",
+            "app_id": "org.jellyfin.mobile",
+            "source": "Jellyfin",
+        },
+        is_sensor=False,
+        inactive_values=_IV,
+    )
+    assert resolution.key == "The Expanse"
+    assert resolution.signal_type == "title"
+
+
+def test_video_content_wins_over_technical_app_and_source_values():
+    key = F.derive_key(
+        media_type="video",
+        signal_type="app",
+        context="apple_tv",
+        state="playing",
+        attributes={
+            "media_artist": "Battlestar Galactica",
+            "media_title": "33",
+            "media_album_name": "Staffel 1",
+            "media_content_type": "video",
+            "app_id": "music_assistant",
+            "source": "Music Assistant Queue",
+        },
+        is_sensor=False,
+        inactive_values=_IV,
+    )
+    # The same metadata shape is safe when the MA player mirrors video. The
+    # technical identifiers cannot win over real content.
+    assert key == "Battlestar Galactica"
+
+
+def test_delayed_video_metadata_defers_technical_fallback_persistence():
+    fallback = F.derive_resolution(
+        media_type="video",
+        signal_type="app",
+        context="apple_tv",
+        state="playing",
+        attributes={"app_id": "com.plexapp.plex", "source": "Plex"},
+        is_sensor=False,
+        inactive_values=_IV,
+    )
+    content = F.derive_resolution(
+        media_type="video",
+        signal_type="app",
+        context="apple_tv",
+        state="playing",
+        attributes={
+            "app_id": "com.plexapp.plex",
+            "source": "Plex",
+            "media_artist": "Battlestar Galactica",
+            "media_title": "33",
+        },
+        is_sensor=False,
+        inactive_values=_IV,
+    )
+    assert fallback.key == "com.plexapp.plex"
+    assert fallback.defer_persistence is True
+    assert content.key == "Battlestar Galactica"
+    assert content.defer_persistence is False
+
+
+def test_video_app_fallback_is_legitimate_only_without_content():
+    resolution = F.derive_resolution(
+        media_type="video",
+        signal_type="app",
+        context="apple_tv",
+        state="playing",
+        attributes={"app_name": "Netflix"},
+        is_sensor=False,
+        inactive_values=_IV,
+    )
+    assert resolution.key == "Netflix"
+    assert resolution.defer_persistence is True
+
+
+def test_music_and_stash_video_semantics_remain_unchanged():
+    music = F.derive_key(
+        media_type="music",
+        signal_type="title",
+        state="playing",
+        attributes={"media_title": "One More Time", "media_artist": "Daft Punk"},
+        is_sensor=False,
+        inactive_values=_IV,
+    )
+    stash = F.derive_key(
+        media_type="video",
+        signal_type="title",
+        context="stash",
+        state="playing",
+        attributes={
+            "media_artist": "Performer",
+            "media_title": "Scene 12",
+        },
+        is_sensor=False,
+        inactive_values=_IV,
+    )
+    assert music == "Daft Punk - One More Time"
+    assert stash == "Scene 12"
+
+
 def test_app_signal_from_sensor_state():
     key = F.derive_key(
         media_type="video", signal_type="app",
