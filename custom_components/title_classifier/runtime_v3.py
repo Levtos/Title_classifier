@@ -8,6 +8,7 @@ modules; this class only wires HA state events and the store.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 
 from homeassistant.config_entries import ConfigEntry
@@ -40,6 +41,13 @@ from .effective import find_context_override, resolve_effective_enum
 from .store_v3 import CatalogStoreV3
 
 
+# Apple-TV media players can publish app/source before Plex or Jellyfin has
+# populated the actual media metadata. The fallback remains visible as a live
+# context value, but is not written to the catalog until it has been stable for
+# this grace period. A content event cancels the pending write.
+VIDEO_FALLBACK_GRACE_SECONDS = 5.0
+
+
 class WatcherRuntimeV3:
     """Runtime state for one v3 watcher config entry."""
 
@@ -56,6 +64,8 @@ class WatcherRuntimeV3:
         self._online: bool = True
         self._remove_listener: Callable[[], None] | None = None
         self._listeners: list[Callable[[], None]] = []
+        self._fallback_task: asyncio.Task | None = None
+        self._fallback_generation = 0
         self._inactive = feeder.build_inactive_values(
             entry.data.get(CONF_INACTIVE_VALUES)
         )
@@ -147,6 +157,7 @@ class WatcherRuntimeV3:
         await self.async_process_state(state)
 
     async def async_unload(self) -> None:
+        self._cancel_pending_fallback()
         if self._remove_listener is not None:
             self._remove_listener()
             self._remove_listener = None
@@ -173,33 +184,59 @@ class WatcherRuntimeV3:
 
     async def async_process_state(self, state: State | None) -> None:
         self._online = self._compute_online()
-        key = None
+        resolution = feeder.KeyResolution(None, self.signal_type)
         if self._online and state is not None:
-            key = feeder.derive_key(
-                media_type=self.media_type,
-                signal_type=self.signal_type,
-                state=state.state,
-                attributes=dict(state.attributes),
-                is_sensor=_is_sensor(state),
-                inactive_values=self._inactive,
-                artist_attribute=self.artist_attribute,
-            )
+            # Media-player attributes can lag one state transition. Never
+            # treat stale metadata on an inactive player as an active title.
+            if _is_sensor(state) or feeder.clean_value(
+                state.state, self._inactive
+            ) is not None:
+                resolution = feeder.derive_resolution(
+                    media_type=self.media_type,
+                    signal_type=self.signal_type,
+                    state=state.state,
+                    attributes=dict(state.attributes),
+                    is_sensor=_is_sensor(state),
+                    inactive_values=self._inactive,
+                    artist_attribute=self.artist_attribute,
+                    context=self.context,
+                )
 
-        if key is None:
+        if resolution.key is None:
             # Offline / nothing playing → effective 0, no catalog write.
+            self._cancel_pending_fallback()
             self._set_inactive()
             return
 
         attrs = dict(state.attributes)
+        if resolution.defer_persistence:
+            self._show_pending_fallback(resolution.key, attrs)
+            self._schedule_fallback_commit(resolution)
+            return
+
+        self._cancel_pending_fallback()
+        await self._async_store_resolution(resolution, attrs)
+
+    async def _async_store_resolution(
+        self, resolution: feeder.KeyResolution, attrs: dict
+    ) -> None:
+        """Persist a resolved key and update the live sensor projection."""
+
+        if resolution.key is None:
+            return
         entry = await self.store.async_seen(
             media_type=self.media_type,
-            signal_type=self.signal_type,
-            key=key,
+            signal_type=resolution.signal_type,
+            key=resolution.key,
             context=self.context,
             source_app=self.source_app,
-            artist=feeder.resolve_artist(attrs, self._inactive, self.artist_attribute)
-            if self.media_type == "music"
-            else None,
+            artist=feeder.resolve_catalog_artist(
+                media_type=self.media_type,
+                context=self.context,
+                attributes=attrs,
+                inactive_values=self._inactive,
+                configured_attribute=self.artist_attribute,
+            ),
             title=feeder.clean_value(attrs.get("media_title"), self._inactive)
             or feeder.clean_value(attrs.get("title"), self._inactive),
             album=feeder.clean_value(attrs.get("media_album_name"), self._inactive),
@@ -211,6 +248,80 @@ class WatcherRuntimeV3:
         self.current_enum = await self._effective_for(entry)
         self.current_artwork = self._resolve_artwork(attrs)
         self.notify_listeners()
+
+    def _show_pending_fallback(self, key: str, attrs: dict) -> None:
+        """Expose a fallback without pretending it already has a catalog row."""
+
+        artwork_url = self._resolve_artwork(attrs)
+        changed = (
+            self.current_key != key
+            or self.current_entry_id is not None
+            or self.current_enum != DEFAULT_ENUM
+            or self.current_artwork != artwork_url
+        )
+        self.current_key = key
+        self.current_entry_id = None
+        self.current_enum = DEFAULT_ENUM
+        self.current_artwork = artwork_url
+        if changed:
+            self.notify_listeners()
+
+    def _schedule_fallback_commit(
+        self, resolution: feeder.KeyResolution
+    ) -> None:
+        self._cancel_pending_fallback()
+        self._fallback_generation += 1
+        generation = self._fallback_generation
+        self._fallback_task = asyncio.create_task(
+            self._async_commit_fallback(generation, resolution.key or "")
+        )
+
+    async def _async_commit_fallback(
+        self, generation: int, fallback_key: str
+    ) -> None:
+        try:
+            await asyncio.sleep(VIDEO_FALLBACK_GRACE_SECONDS)
+            if generation != self._fallback_generation:
+                return
+
+            # Re-read the source. This protects against a metadata update that
+            # did not reach the listener before the grace timer elapsed.
+            state = self.hass.states.get(self.source_entity)
+            if state is None or not self._compute_online():
+                return
+            if not _is_sensor(state) and feeder.clean_value(
+                state.state, self._inactive
+            ) is None:
+                return
+            current = feeder.derive_resolution(
+                media_type=self.media_type,
+                signal_type=self.signal_type,
+                state=state.state,
+                attributes=dict(state.attributes),
+                is_sensor=_is_sensor(state),
+                inactive_values=self._inactive,
+                artist_attribute=self.artist_attribute,
+                context=self.context,
+            )
+            if current.key is None or generation != self._fallback_generation:
+                return
+            if not current.defer_persistence:
+                # Metadata arrived without a corresponding state event; store
+                # the content identity directly and discard the fallback path.
+                await self._async_store_resolution(current, dict(state.attributes))
+                return
+            if current.key != fallback_key:
+                return
+            await self._async_store_resolution(current, dict(state.attributes))
+        finally:
+            if self._fallback_task is asyncio.current_task():
+                self._fallback_task = None
+
+    def _cancel_pending_fallback(self) -> None:
+        self._fallback_generation += 1
+        if self._fallback_task is not None:
+            self._fallback_task.cancel()
+            self._fallback_task = None
 
     def _resolve_artwork(self, source_attrs: dict) -> str | None:
         """Live artwork URL for the current source (never stored in the DB)."""
